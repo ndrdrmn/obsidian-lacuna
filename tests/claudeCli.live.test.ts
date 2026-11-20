@@ -33,7 +33,7 @@ describe.skipIf(!process.env.LACUNA_LIVE)("Claude CLI, for real", () => {
 
     const before = new Set(readdirSync(tmpdir()).filter((n) => n.startsWith("lacuna-")));
     const resolver = new ClaudeCliResolver(() => ({ executable, model: "sonnet", timeoutSec: 180, maxCandidates: 2 }));
-    const result = await resolver.solve({ kind: "suppl", prompt }, new AbortController().signal);
+    const result = await resolver.solve({ kind: "suppl", prompt, question: "exact release date (RTM)", inline: true }, new AbortController().signal);
 
     console.log(JSON.stringify(result, null, 2));
     expect(result.resolver).toBe("claude-cli/sonnet");

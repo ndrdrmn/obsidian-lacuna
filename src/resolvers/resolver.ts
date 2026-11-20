@@ -17,8 +17,14 @@ export type Verdict = "confirmed" | "corrected" | "uncertain";
 
 export interface SolveRequest {
   kind: Kind;
-  /** The finished prompt (see `buildPrompt`). */
+  /** The finished prompt (see `buildPrompt`), for resolvers that talk to a model. */
   prompt: string;
+  /** The rest is for resolvers that talk to a person. */
+  question: string;
+  /** `sic` only: the claim to verify. */
+  claim?: string;
+  /** True when the marker is inside a line of text, so the answer must be one line. */
+  inline: boolean;
 }
 
 export interface SolveResult {
@@ -37,6 +43,14 @@ export interface Resolver {
   readonly id: string;
   readonly name: string;
   solve(request: SolveRequest, signal: AbortSignal): Promise<SolveResult>;
+}
+
+/** The user closed the dialog without answering. Not an error worth a message. */
+export class CancelledError extends Error {
+  constructor() {
+    super("Cancelled");
+    this.name = "CancelledError";
+  }
 }
 
 /** A failure whose message is fit to show the user as it is. */

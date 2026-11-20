@@ -21,7 +21,7 @@ export interface HistoryNoteInput {
   asked: Date;
   resolver: string;
   verdict?: Verdict;
-  /** The text that was sent to the search, marker included. */
+  /** The text that was sent to the search, marker included. Empty when nothing was sent. */
   context: string;
   candidates: Candidate[];
 }
@@ -108,7 +108,11 @@ export function buildHistoryNote(i: HistoryNoteInput): string {
     "---",
   ].join("\n");
 
-  const parts = [front, `# ${i.title}`, `> Context sent to the search:\n>\n${quoteBlock(normalizeMarker(i.context))}`];
+  const parts = [front, `# ${i.title}`];
+  // "Answer myself" sends nothing anywhere, so it has no context to show.
+  if (i.context.trim() !== "") {
+    parts.push(`> Context sent to the search:\n>\n${quoteBlock(normalizeMarker(i.context))}`);
+  }
   i.candidates.forEach((c, n) => {
     const section = [`## Candidate ${n + 1}`, c.answer.trim()];
     if (c.sources.length > 0) section.push("", c.sources.map(sourceLine).join("\n"));

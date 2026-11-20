@@ -96,3 +96,29 @@
   color: var(--text-faint);
   font-style: italic;
 }
+
+/* The "Answer myself" dialog */
+.lacuna-modal-what {
+  margin-bottom: var(--size-4-2);
+}
+
+.lacuna-modal-claim {
+  margin-bottom: var(--size-4-2);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.lacuna-modal-answer,
+.lacuna-modal-source {
+  width: 100%;
+  margin-bottom: var(--size-4-2);
+}
+
+.lacuna-modal-answer {
+  resize: vertical;
+}
+
+.modal-content .lacuna-error {
+  color: var(--text-error);
+  font-size: var(--font-ui-smaller);
+}

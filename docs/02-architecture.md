@@ -101,3 +101,13 @@ A sidebar card expands in place. Candidates are radio options with their sources
 The body of a history note is `# title`, the context that was sent as a block quote, then one `## Candidate N` section per candidate: the answer, a blank line, and its sources as `- [title](url) — “quote”` lines. An answer must not contain a `#` heading. Only `http` and `https` sources are kept.
 
 The plugin never reads the vault from the resolver's side: the only thing that leaves the machine is the prompt (the title, the context chosen in the settings, the question).
+
+### "Answer myself"
+
+The offline resolver (`src/resolvers/manual.ts`): a dialog where the user types the answer, with an optional source link. Behind the same `Resolver` interface, so the result is the same pending history note (`resolver: manual`, one candidate) and the review step treats it like any other.
+
+- It **does not go through the queue**, which runs one job at a time and must not be held up by a dialog.
+- **Nothing is sent anywhere**, so the note has no "Context sent" block.
+- For `sic` the dialog asks whether the claim is right or wrong: a confirmed claim needs no text (only the citation is added), a wrong one needs the correction.
+- The source, if given, must be an `http(s)` link; the input is checked by `validateManualAnswer`, which is pure and tested.
+- It is offered next to Solve, after a failure (for instance when offline), and after a rejection. It works without a question for every kind.

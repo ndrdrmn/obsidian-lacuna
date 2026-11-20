@@ -139,7 +139,7 @@ describe("parseClaudeOutput", () => {
 
 describe("ClaudeCliResolver (failures that need no Claude)", () => {
   const options = (executable: string) => () => ({ executable, model: "sonnet", timeoutSec: 5, maxCandidates: 3 });
-  const request = { kind: "suppl" as const, prompt: "hi" };
+  const request = { kind: "suppl" as const, prompt: "hi", question: "q", inline: true };
 
   it("says where to look when the program is not found", async () => {
     const r = new ClaudeCliResolver(options("lacuna-no-such-program-xyz"));

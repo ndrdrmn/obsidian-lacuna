@@ -36,6 +36,10 @@ multiple lines
 and they appear as a single question
 in the sidebar==
 
+==?glossa: what is Answer myself==
+
+
+
 ## Things that must NOT be listed
 
 A plain highlight: ==this is not a marker==, and a highlight followed by a question mark ==really==? is not one either.

@@ -1,5 +1,5 @@
 import { MarkdownView, Notice, Plugin, TFile, debounce, type Editor } from "obsidian";
-import { extractClaim, extractContext } from "./context";
+import { extractClaim, extractContext, type ContextResult } from "./context";
 import { isBlockMarker } from "./apply";
 import { KeywordModal, MarkerSuggest } from "./editor/suggest";
 import { HistoryStore } from "./history";
@@ -11,7 +11,8 @@ import { isHistoryPath } from "./paths";
 import { buildPrompt } from "./prompt";
 import { JobQueue, type Job } from "./queue";
 import { ClaudeCliResolver } from "./resolvers/claudeCli";
-import type { Resolver } from "./resolvers/resolver";
+import { ManualResolver } from "./resolvers/manual";
+import { CancelledError, type Resolver, type SolveResult } from "./resolvers/resolver";
 import { MarkerIndex } from "./scanner";
 import { LacunaSettingTab } from "./settings";
 import {
@@ -29,6 +30,15 @@ export interface SolvePayload {
   marker: Marker;
 }
 
+/** A marker as it is in the note right now, with what a resolver needs to know about it. */
+interface Prepared {
+  file: TFile;
+  marker: Marker;
+  context: ContextResult;
+  claim?: string;
+  inline: boolean;
+}
+
 export default class LacunaPlugin extends Plugin {
   settings: LacunaSettings = DEFAULT_SETTINGS;
   index!: MarkerIndex;
@@ -36,6 +46,9 @@ export default class LacunaPlugin extends Plugin {
   /** Result of a job: the path of the pending history note. */
   queue!: JobQueue<SolvePayload, string>;
   private resolver!: Resolver;
+  private manual!: Resolver;
+  /** Markers whose "Answer myself" dialog is open, so that a double click does not open two. */
+  private readonly manualOpen = new Set<string>();
   private aliasMap: Map<string, AliasEntry> | null = null;
 
   async onload(): Promise<void> {
@@ -52,6 +65,7 @@ export default class LacunaPlugin extends Plugin {
       timeoutSec: this.settings.timeoutSec,
       maxCandidates: this.settings.maxCandidates,
     }));
+    this.manual = new ManualResolver(this.app);
     this.queue = new JobQueue((payload, signal) => this.runSolve(payload, signal));
     this.queue.onChange((job) => this.announce(job));
 
@@ -174,8 +188,8 @@ export default class LacunaPlugin extends Plugin {
     return this.app.vault.read(file);
   }
 
-  /** One job: build the prompt, ask the resolver, write the pending history note. */
-  private async runSolve({ path, marker }: SolvePayload, signal: AbortSignal): Promise<string> {
+  /** Everything a resolver needs to know about a marker, as the note is right now. */
+  private async prepare(path: string, marker: Marker): Promise<Prepared> {
     const file = this.app.vault.getFileByPath(path);
     if (!file) throw new Error("That note no longer exists.");
 
@@ -183,37 +197,78 @@ export default class LacunaPlugin extends Plugin {
     const text = await this.readArticle(file);
     const current = pickMarker(parseMarkers(text, this.parseOptions()), marker.raw, marker.start);
     if (!current) throw new Error("The marker is no longer in the note.");
-    if (current.kind !== "sic" && current.question === "") throw new Error("Write the question first.");
 
-    const context = extractContext(text, current, this.settings.contextMode);
-    const claim = current.kind === "sic" ? extractClaim(text, current) : undefined;
-    const prompt = buildPrompt({
-      kind: current.kind,
-      question: current.question,
-      noteTitle: file.basename,
-      context,
-      claim,
+    return {
+      file,
+      marker: current,
+      context: extractContext(text, current, this.settings.contextMode),
+      claim: current.kind === "sic" ? extractClaim(text, current) : undefined,
       inline: !isBlockMarker(text, current),
-      rejected: [],
-      maxCandidates: this.settings.maxCandidates,
-    });
+    };
+  }
 
-    const result = await this.resolver.solve({ kind: current.kind, prompt }, signal);
-    if (signal.aborted) throw new Error("Cancelled");
-
-    const note = await this.history.create(file, {
-      kind: current.kind,
-      alias: current.alias,
-      title: current.question || claim || current.kind,
-      question: current.question,
-      marker: current.raw,
+  /** Write the pending history note. `sent` is false when nothing left the machine. */
+  private async record(p: Prepared, result: SolveResult, sent: boolean): Promise<string> {
+    const note = await this.history.create(p.file, {
+      kind: p.marker.kind,
+      alias: p.marker.alias,
+      title: p.marker.question || p.claim || p.marker.kind,
+      question: p.marker.question,
+      marker: p.marker.raw,
       asked: new Date(),
       resolver: result.resolver,
-      verdict: current.kind === "sic" ? result.verdict : undefined,
-      context: context.text,
+      verdict: p.marker.kind === "sic" ? result.verdict : undefined,
+      context: sent ? p.context.text : "",
       candidates: result.candidates,
     });
     return note.path;
+  }
+
+  /** One job of the queue: build the prompt, ask Claude, write the pending history note. */
+  private async runSolve({ path, marker }: SolvePayload, signal: AbortSignal): Promise<string> {
+    const p = await this.prepare(path, marker);
+    if (p.marker.kind !== "sic" && p.marker.question === "") throw new Error("Write the question first.");
+
+    const prompt = buildPrompt({
+      kind: p.marker.kind,
+      question: p.marker.question,
+      noteTitle: p.file.basename,
+      context: p.context,
+      claim: p.claim,
+      inline: p.inline,
+      rejected: [],
+      maxCandidates: this.settings.maxCandidates,
+    });
+    const result = await this.resolver.solve(
+      { kind: p.marker.kind, prompt, question: p.marker.question, claim: p.claim, inline: p.inline },
+      signal,
+    );
+    if (signal.aborted) throw new Error("Cancelled");
+    return this.record(p, result, true);
+  }
+
+  /**
+   * "Answer myself": the user types the answer. It does not go through the queue, which
+   * runs one job at a time and must not be held up by a dialog; and nothing is sent anywhere.
+   * The result is the same pending history note as Claude's.
+   */
+  async answerMyself(path: string, marker: Marker): Promise<void> {
+    const key = jobKey(path, marker.raw);
+    if (this.manualOpen.has(key)) return;
+    this.manualOpen.add(key);
+    try {
+      const p = await this.prepare(path, marker);
+      const result = await this.manual.solve(
+        { kind: p.marker.kind, prompt: "", question: p.marker.question, claim: p.claim, inline: p.inline },
+        new AbortController().signal,
+      );
+      await this.record(p, result, false);
+      new Notice(`Lacuna: answer saved for “${p.marker.question || p.marker.kind}”.`);
+    } catch (e) {
+      if (!(e instanceof CancelledError)) new Notice(`Lacuna: ${e instanceof Error ? e.message : String(e)}`, 10_000);
+    } finally {
+      this.manualOpen.delete(key);
+    }
   }
 
   /** Tell the user when a search ends, even if the sidebar is closed. */

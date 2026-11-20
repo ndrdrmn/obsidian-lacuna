@@ -87,6 +87,13 @@ describe("buildHistoryNote", () => {
     expect(multi).toContain("> one\n>\n> two");
   });
 
+  it("has no 'context sent' block when nothing was sent (Answer myself)", () => {
+    const n = buildHistoryNote(input({ resolver: "manual", context: "" }));
+    expect(n).not.toContain("Context sent");
+    expect(front(n, "resolver")).toBe("manual");
+    expect(n).toContain("# exact release date\n\n## Candidate 1\n");
+  });
+
   it("lists the candidates with their sources", () => {
     expect(note).toContain(
       "## Candidate 1\nAugust 24, 1995\n\n- [Microsoft – launch](https://example.com/a) — “launched on August 24”",

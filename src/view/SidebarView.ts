@@ -156,6 +156,9 @@ export class SidebarView extends ItemView {
     // Every kind but `sic` needs a question; `sic` checks the claim before the marker.
     const needsQuestion = marker.kind !== "sic" && marker.question === "";
     const solve = (): void => this.plugin.solve(path, marker);
+    const answerMyself = (): void => void this.plugin.answerMyself(path, marker);
+    const answerButton = (): void =>
+      button("Answer myself", answerMyself, { title: "Type the answer yourself: nothing is searched or sent" });
 
     switch (state.state) {
       case "idle":
@@ -164,6 +167,7 @@ export class SidebarView extends ItemView {
           disabled: needsQuestion,
           title: needsQuestion ? "Write the question first" : "Search for an answer",
         });
+        answerButton();
         break;
       case "queued":
         status("queued", "lacuna-status-wait");
@@ -176,6 +180,7 @@ export class SidebarView extends ItemView {
       case "failed":
         status("failed", "lacuna-status-failed", state.error);
         button("Retry", solve);
+        answerButton();
         actions.createDiv({ cls: "lacuna-error", text: state.error });
         break;
       case "ready":
@@ -186,6 +191,7 @@ export class SidebarView extends ItemView {
         status("rejected", "lacuna-status-rejected");
         button("Open note", () => void this.plugin.openNote(state.notePath));
         button("Solve again", solve, { disabled: needsQuestion });
+        answerButton();
         break;
     }
   }
