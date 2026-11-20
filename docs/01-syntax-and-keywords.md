@@ -57,6 +57,26 @@ Setting with one of `suppl` (default value), `sic`, `fontes`, `glossa`, `cf`, or
 - **Idiolect:** each alias is validated as it is typed, against Latin, every built-in pack (enabled or not) and the rest of the Idiolect. A clash is refused with a message such as "already means *sic* in Italiano". Reusing a word for the same kind is allowed.
 - **On language select:** a cheap re-check, in case an update added a built-in pack containing a word the Idiolect already uses.
 
+## Inserting a marker
+
+Defaults: the recognised languages are Latin and English, the popup language is Latin, the default kind is `suppl`.
+
+- **Command `/adloc`** ("Insert marker (adloc)"). Typing `/adloc` in the Slash commands core plugin finds it, because that plugin lists commands by name. The core plugin is off in a new vault: enable it in Settings → Core plugins.
+- **Hotkey:** none by default, as the Obsidian guidelines advise. Assign one to the same command in Settings → Hotkeys.
+- **Right-click** "Ask about this…" does the same as the command.
+- **Typing `==?`** opens a popup listing the keywords of the popup language, the default kind first. It filters as you type and closes as soon as you type a space or a colon, so an ordinary question is never blocked.
+
+What the command and the right-click entry insert:
+
+| Situation | Result |
+|---|---|
+| No selection, default kind set | `==? ==`, cursor before the closing `==` |
+| Selection, default kind set | `==?selection==` (the selection becomes the question, on one line) |
+| Default kind None | A picker asks for the kind first, then inserts `==?kw: ==` or `==?kw: selection==` |
+| Selection containing `==` | Refused with a notice: a marker cannot contain `==` |
+
+With the default kind None the picker is a modal (Obsidian's `SuggestModal`), not the inline popup, because a programmatic insertion is not guaranteed to trigger the inline one.
+
 ## What the history note records
 
 - `kind:` always holds the Latin canonical name.
