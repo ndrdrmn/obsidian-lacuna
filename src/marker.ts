@@ -241,6 +241,25 @@ function buildMarker(
   return { kind: opts.defaultKind, question: oneLine(inner), raw, ...where };
 }
 
+/**
+ * The marker with this text that is closest to `hint` (an offset), or undefined if none is left.
+ * Used when the note may have been edited since the marker was listed.
+ */
+export function pickMarker(markers: readonly Marker[], raw: string, hint: number): Marker | undefined {
+  const wanted = raw.replace(/\r\n/g, "\n");
+  let best: Marker | undefined;
+  let bestDistance = Infinity;
+  for (const m of markers) {
+    if (m.raw.replace(/\r\n/g, "\n") !== wanted) continue;
+    const distance = Math.abs(m.start - hint);
+    if (distance < bestDistance) {
+      best = m;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
 /** `alias:` value of a history note, e.g. `verifica (it)`. */
 export function formatAlias(alias: { word: string; packId: string }): string {
   return `${alias.word} (${alias.packId})`;

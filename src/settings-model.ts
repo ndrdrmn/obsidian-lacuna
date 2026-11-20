@@ -1,8 +1,13 @@
+import type { ContextMode } from "./context";
 import { isValidAliasFormat, type Idiolect } from "./lang/keywords";
 import { ALL_PACK_IDS, KINDS, LATIN_ID, type Kind } from "./lang/packs";
 import { cleanFolderName } from "./paths";
 
 export type DefaultKind = Kind | "none";
+export type HistoryLocation = "vault" | "article";
+
+export const CONTEXT_MODES: readonly ContextMode[] = ["sentence", "paragraph", "paragraphPlusMinusOne", "note"];
+export const HISTORY_LOCATIONS: readonly HistoryLocation[] = ["vault", "article"];
 
 export interface LacunaSettings {
   /** Ids of the packs whose keywords are recognised. Never empty. */
@@ -15,6 +20,15 @@ export interface LacunaSettings {
   defaultKind: DefaultKind;
   /** Folder of the history notes (the apparatus). Notes inside it are never scanned for markers. */
   historyFolder: string;
+  /** One folder in the vault, or a folder of that name next to each article. */
+  historyLocation: HistoryLocation;
+  /** How much of the note is sent to the search, besides its title. */
+  contextMode: ContextMode;
+  /** `claude`, or the full path to `claude.exe`. */
+  claudePath: string;
+  model: string;
+  timeoutSec: number;
+  maxCandidates: number;
 }
 
 export const DEFAULT_SETTINGS: LacunaSettings = {
@@ -23,7 +37,23 @@ export const DEFAULT_SETTINGS: LacunaSettings = {
   idiolect: {},
   defaultKind: "suppl",
   historyFolder: "Apparatus",
+  historyLocation: "vault",
+  contextMode: "paragraph",
+  claudePath: "claude",
+  model: "sonnet",
+  timeoutSec: 180,
+  maxCandidates: 3,
 };
+
+function clampInt(v: unknown, min: number, max: number, fallback: number): number {
+  if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(v)));
+}
+
+/** A model name goes into the command line: letters, digits and `. _ : [ ] -`, not starting with `-`. */
+export function isValidModel(model: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._:[\]-]*$/.test(model);
+}
 
 /** Turn whatever `loadData()` returned into valid settings. */
 export function normalizeSettings(raw: unknown): LacunaSettings {
@@ -36,7 +66,7 @@ export function normalizeSettings(raw: unknown): LacunaSettings {
   if (enabled.length === 0) enabled = [LATIN_ID];
 
   // Choosing a popup language also enables it.
-  let popupLang = typeof r.popupLang === "string" && ALL_PACK_IDS.includes(r.popupLang) ? r.popupLang : enabled[0];
+  const popupLang = typeof r.popupLang === "string" && ALL_PACK_IDS.includes(r.popupLang) ? r.popupLang : enabled[0];
   if (!enabled.includes(popupLang)) enabled.push(popupLang);
 
   const idiolect: Idiolect = {};
@@ -56,7 +86,33 @@ export function normalizeSettings(raw: unknown): LacunaSettings {
   const folder = typeof r.historyFolder === "string" ? cleanFolderName(r.historyFolder) : "";
   const historyFolder = folder !== "" ? folder : DEFAULT_SETTINGS.historyFolder;
 
-  return { enabledLangs: enabled, popupLang, idiolect, defaultKind, historyFolder };
+  const historyLocation = (HISTORY_LOCATIONS as readonly unknown[]).includes(r.historyLocation)
+    ? (r.historyLocation as HistoryLocation)
+    : DEFAULT_SETTINGS.historyLocation;
+  const contextMode = (CONTEXT_MODES as readonly unknown[]).includes(r.contextMode)
+    ? (r.contextMode as ContextMode)
+    : DEFAULT_SETTINGS.contextMode;
+
+  const claudePath =
+    typeof r.claudePath === "string" && r.claudePath.trim() !== "" && !/[\r\n]/.test(r.claudePath)
+      ? r.claudePath.trim()
+      : DEFAULT_SETTINGS.claudePath;
+  const model =
+    typeof r.model === "string" && isValidModel(r.model.trim()) ? r.model.trim() : DEFAULT_SETTINGS.model;
+
+  return {
+    enabledLangs: enabled,
+    popupLang,
+    idiolect,
+    defaultKind,
+    historyFolder,
+    historyLocation,
+    contextMode,
+    claudePath,
+    model,
+    timeoutSec: clampInt(r.timeoutSec, 10, 900, DEFAULT_SETTINGS.timeoutSec),
+    maxCandidates: clampInt(r.maxCandidates, 1, 5, DEFAULT_SETTINGS.maxCandidates),
+  };
 }
 
 /** Check or uncheck a language. Unchecking the last one checks Latin again. */

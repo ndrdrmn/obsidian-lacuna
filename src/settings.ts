@@ -1,14 +1,24 @@
-import { PluginSettingTab, Setting, type App } from "obsidian";
+import { Notice, PluginSettingTab, Setting, type App } from "obsidian";
+import type { ContextMode } from "./context";
 import { ALL_PACK_IDS, KINDS, KIND_HINTS, getPack, packName } from "./lang/packs";
 import type LacunaPlugin from "./main";
 import { cleanFolderName } from "./paths";
-import { DEFAULT_SETTINGS, setPopupLang, toggleLang, type DefaultKind } from "./settings-model";
+import { testClaude } from "./resolvers/claudeCli";
+import {
+  CONTEXT_MODES,
+  DEFAULT_SETTINGS,
+  isValidModel,
+  setPopupLang,
+  toggleLang,
+  type DefaultKind,
+  type HistoryLocation,
+} from "./settings-model";
 
 const APPARATUS_URL = "https://en.wikipedia.org/wiki/Critical_apparatus";
 
 /**
- * Minimal settings tab: what steps 3 and 4 need (default kind, languages, history folder).
- * The Idiolect editor, the history-note location and the rest come with step 7.
+ * Settings tab: what steps 3 to 5 need. The Idiolect editor, the citation style and the
+ * rest come with steps 6 and 7.
  */
 export class LacunaSettingTab extends PluginSettingTab {
   constructor(
@@ -107,5 +117,109 @@ export class LacunaSettingTab extends PluginSettingTab {
           });
         t.inputEl.addEventListener("blur", () => void this.plugin.applySettings());
       });
+
+    new Setting(containerEl)
+      .setName("Where the history notes go")
+      .setDesc("One folder in the vault, or a folder of that name next to each article.")
+      .addDropdown((dd) => {
+        dd.addOption("vault", "One folder in the vault");
+        dd.addOption("article", "Next to each article");
+        dd.setValue(settings.historyLocation).onChange(async (value) => {
+          this.plugin.settings.historyLocation = value as HistoryLocation;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl).setName("Search").setHeading();
+
+    new Setting(containerEl)
+      .setName("Context sent")
+      .setDesc(
+        "How much of the note is sent along with the question, besides the note's title. " +
+          "Everything you send goes to Claude's web search; nothing else leaves your computer.",
+      )
+      .addDropdown((dd) => {
+        for (const mode of CONTEXT_MODES) dd.addOption(mode, CONTEXT_LABELS[mode]);
+        dd.setValue(settings.contextMode).onChange(async (value) => {
+          this.plugin.settings.contextMode = value as ContextMode;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Maximum candidates")
+      .setDesc("How many answers to ask for (1 to 5).")
+      .addText((t) =>
+        t.setValue(String(settings.maxCandidates)).onChange(async (value) => {
+          const n = Number(value);
+          if (!Number.isInteger(n) || n < 1 || n > 5) return;
+          this.plugin.settings.maxCandidates = n;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl).setName("Claude").setHeading();
+
+    new Setting(containerEl)
+      .setName("Claude CLI")
+      .setDesc(
+        "The claude command, or the full path to claude.exe. Lacuna runs it with your own login, so it uses " +
+          "your Claude subscription. The agent starts in an empty temporary folder and may only search and " +
+          "read the web: it cannot see your vault. Use Test to check that Obsidian can start it.",
+      )
+      .addText((t) =>
+        t
+          .setPlaceholder(DEFAULT_SETTINGS.claudePath)
+          .setValue(settings.claudePath)
+          .onChange(async (value) => {
+            this.plugin.settings.claudePath = value.trim() === "" ? DEFAULT_SETTINGS.claudePath : value.trim();
+            await this.plugin.saveSettings();
+          }),
+      )
+      .addButton((b) =>
+        b.setButtonText("Test").onClick(async () => {
+          b.setDisabled(true);
+          try {
+            new Notice(`Claude CLI found: ${await testClaude(this.plugin.settings.claudePath)}`);
+          } catch (e) {
+            new Notice(e instanceof Error ? e.message : String(e), 10_000);
+          } finally {
+            b.setDisabled(false);
+          }
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Model")
+      .setDesc("For example sonnet, opus or haiku. Letters, digits and . _ : [ ] - only.")
+      .addText((t) =>
+        t
+          .setPlaceholder(DEFAULT_SETTINGS.model)
+          .setValue(settings.model)
+          .onChange(async (value) => {
+            if (!isValidModel(value.trim())) return;
+            this.plugin.settings.model = value.trim();
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Timeout (seconds)")
+      .setDesc("How long to wait for Claude before giving up (10 to 900). A search usually takes 20 to 60 seconds.")
+      .addText((t) =>
+        t.setValue(String(settings.timeoutSec)).onChange(async (value) => {
+          const n = Number(value);
+          if (!Number.isInteger(n) || n < 10 || n > 900) return;
+          this.plugin.settings.timeoutSec = n;
+          await this.plugin.saveSettings();
+        }),
+      );
   }
 }
+
+const CONTEXT_LABELS: Record<ContextMode, string> = {
+  sentence: "The sentence",
+  paragraph: "The paragraph (default)",
+  paragraphPlusMinusOne: "The paragraph and its neighbours",
+  note: "The whole note",
+};

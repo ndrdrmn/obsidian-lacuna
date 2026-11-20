@@ -27,6 +27,10 @@
 }
 
 .lacuna-view .lacuna-item {
+  padding: var(--size-4-1) 0;
+}
+
+.lacuna-view .lacuna-line {
   display: flex;
   align-items: baseline;
   gap: var(--size-4-2);
@@ -35,9 +39,43 @@
   cursor: pointer;
 }
 
-.lacuna-view .lacuna-item:hover,
-.lacuna-view .lacuna-item:focus-visible {
+.lacuna-view .lacuna-line:hover,
+.lacuna-view .lacuna-line:focus-visible {
   background: var(--background-modifier-hover);
+}
+
+.lacuna-view .lacuna-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: 0 var(--size-4-2) var(--size-4-1);
+}
+
+.lacuna-view .lacuna-actions button {
+  height: auto;
+  padding: var(--size-2-1) var(--size-4-2);
+  font-size: var(--font-ui-smaller);
+}
+
+.lacuna-view .lacuna-status {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.lacuna-view .lacuna-status-ready {
+  color: var(--text-success);
+}
+
+.lacuna-view .lacuna-status-failed {
+  color: var(--text-error);
+}
+
+.lacuna-view .lacuna-error {
+  flex-basis: 100%;
+  color: var(--text-error);
+  font-size: var(--font-ui-smaller);
+  overflow-wrap: anywhere;
 }
 
 .lacuna-view .lacuna-kind {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SETTINGS,
   defaultKindOrNull,
+  isValidModel,
   normalizeSettings,
   setPopupLang,
   toggleLang,
@@ -25,7 +26,7 @@ describe("normalizeSettings", () => {
       defaultKind: "none",
       historyFolder: "Notes/Apparatus",
     });
-    expect(s).toEqual({
+    expect(s).toMatchObject({
       enabledLangs: ["it", "idiolect"],
       popupLang: "it",
       idiolect: { suppl: "gap" },
@@ -64,6 +65,56 @@ describe("normalizeSettings", () => {
     expect(normalizeSettings({ historyFolder: "" }).historyFolder).toBe("Apparatus");
     expect(normalizeSettings({ historyFolder: "../x" }).historyFolder).toBe("Apparatus");
     expect(normalizeSettings({ historyFolder: 3 }).historyFolder).toBe("Apparatus");
+  });
+
+  it("defaults the resolver, context and history location settings", () => {
+    const s = normalizeSettings({});
+    expect(s).toMatchObject({
+      historyLocation: "vault",
+      contextMode: "paragraph",
+      claudePath: "claude",
+      model: "sonnet",
+      timeoutSec: 180,
+      maxCandidates: 3,
+    });
+  });
+
+  it("keeps valid resolver settings and rejects invalid ones", () => {
+    const ok = normalizeSettings({
+      historyLocation: "article",
+      contextMode: "note",
+      claudePath: " C:\\Users\\me\\.local\\bin\\claude.exe ",
+      model: "claude-sonnet-5-5",
+      timeoutSec: 60,
+      maxCandidates: 5,
+    });
+    expect(ok).toMatchObject({
+      historyLocation: "article",
+      contextMode: "note",
+      claudePath: "C:\\Users\\me\\.local\\bin\\claude.exe",
+      model: "claude-sonnet-5-5",
+      timeoutSec: 60,
+      maxCandidates: 5,
+    });
+    const bad = normalizeSettings({
+      historyLocation: "cloud",
+      contextMode: "everything",
+      claudePath: "  ",
+      model: "--dangerously-skip-permissions",
+    });
+    expect(bad).toMatchObject({ historyLocation: "vault", contextMode: "paragraph", claudePath: "claude", model: "sonnet" });
+  });
+
+  it("clamps the timeout and the number of candidates", () => {
+    expect(normalizeSettings({ timeoutSec: 1, maxCandidates: 99 })).toMatchObject({ timeoutSec: 10, maxCandidates: 5 });
+    expect(normalizeSettings({ timeoutSec: 99999, maxCandidates: 0 })).toMatchObject({ timeoutSec: 900, maxCandidates: 1 });
+    expect(normalizeSettings({ timeoutSec: "soon", maxCandidates: NaN })).toMatchObject({ timeoutSec: 180, maxCandidates: 3 });
+    expect(normalizeSettings({ timeoutSec: 45.6 }).timeoutSec).toBe(46);
+  });
+
+  it("accepts the usual model names and nothing that looks like an option", () => {
+    for (const m of ["sonnet", "opus", "haiku", "claude-sonnet-5-5", "sonnet[1m]"]) expect(isValidModel(m)).toBe(true);
+    for (const m of ["", "-x", "a b", "a;b", "a\nb"]) expect(isValidModel(m)).toBe(false);
   });
 
   it("keeps only well-formed Idiolect words, trimmed", () => {

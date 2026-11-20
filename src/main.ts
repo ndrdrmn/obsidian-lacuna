@@ -1,9 +1,17 @@
 import { MarkdownView, Notice, Plugin, TFile, debounce, type Editor } from "obsidian";
+import { extractClaim, extractContext } from "./context";
+import { isBlockMarker } from "./apply";
 import { KeywordModal, MarkerSuggest } from "./editor/suggest";
+import { HistoryStore } from "./history";
+import { jobKey, matchHistory, type HistoryEntry } from "./history-note";
 import { buildInsertion } from "./insert";
 import { buildAliasMap, popupKeywords, type AliasEntry, type KeywordItem } from "./lang/keywords";
-import type { Marker, ParseOptions } from "./marker";
+import { parseMarkers, pickMarker, type Marker, type ParseOptions } from "./marker";
 import { isHistoryPath } from "./paths";
+import { buildPrompt } from "./prompt";
+import { JobQueue, type Job } from "./queue";
+import { ClaudeCliResolver } from "./resolvers/claudeCli";
+import type { Resolver } from "./resolvers/resolver";
 import { MarkerIndex } from "./scanner";
 import { LacunaSettingTab } from "./settings";
 import {
@@ -12,11 +20,22 @@ import {
   normalizeSettings,
   type LacunaSettings,
 } from "./settings-model";
+import { itemState, type ItemState } from "./status";
 import { SidebarView, VIEW_TYPE_LACUNA } from "./view/SidebarView";
+
+/** What a job needs: where the marker was seen. It is found again in the current text when the job runs. */
+export interface SolvePayload {
+  path: string;
+  marker: Marker;
+}
 
 export default class LacunaPlugin extends Plugin {
   settings: LacunaSettings = DEFAULT_SETTINGS;
   index!: MarkerIndex;
+  history!: HistoryStore;
+  /** Result of a job: the path of the pending history note. */
+  queue!: JobQueue<SolvePayload, string>;
+  private resolver!: Resolver;
   private aliasMap: Map<string, AliasEntry> | null = null;
 
   async onload(): Promise<void> {
@@ -26,6 +45,15 @@ export default class LacunaPlugin extends Plugin {
       parseOptions: () => this.parseOptions(),
       isExcluded: (path) => isHistoryPath(path, this.settings.historyFolder),
     });
+    this.history = new HistoryStore(this.app, () => this.settings);
+    this.resolver = new ClaudeCliResolver(() => ({
+      executable: this.settings.claudePath,
+      model: this.settings.model,
+      timeoutSec: this.settings.timeoutSec,
+      maxCandidates: this.settings.maxCandidates,
+    }));
+    this.queue = new JobQueue((payload, signal) => this.runSolve(payload, signal));
+    this.queue.onChange((job) => this.announce(job));
 
     this.addSettingTab(new LacunaSettingTab(this.app, this));
     this.registerEditorSuggest(new MarkerSuggest(this));
@@ -58,6 +86,11 @@ export default class LacunaPlugin extends Plugin {
     );
 
     this.registerIndexEvents();
+  }
+
+  onunload(): void {
+    // Do not leave a search running in the background after the plugin is gone.
+    this.queue.cancelAll();
   }
 
   /**
@@ -116,6 +149,91 @@ export default class LacunaPlugin extends Plugin {
     const s = this.settings;
     return popupKeywords(s.popupLang, s.idiolect, defaultKindOrNull(s));
   }
+
+  // ---- Solving ------------------------------------------------------------
+
+  /** Queue a search for this marker. Does nothing if one is already queued or running. */
+  solve(path: string, marker: Marker): void {
+    this.queue.enqueue(jobKey(path, marker.raw), { path, marker });
+  }
+
+  cancel(path: string, marker: Marker): void {
+    this.queue.cancel(jobKey(path, marker.raw));
+  }
+
+  /** What the sidebar shows for a marker. `entries` is `this.history.list()`, read once per render. */
+  stateOf(path: string, marker: Marker, entries: readonly HistoryEntry[]): ItemState {
+    return itemState(this.queue.get(jobKey(path, marker.raw)), matchHistory(entries, path, marker.raw));
+  }
+
+  /** The note's text as it is now, including what has not been saved yet. */
+  private async readArticle(file: TFile): Promise<string> {
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      if (leaf.view instanceof MarkdownView && leaf.view.file?.path === file.path) return leaf.view.getViewData();
+    }
+    return this.app.vault.read(file);
+  }
+
+  /** One job: build the prompt, ask the resolver, write the pending history note. */
+  private async runSolve({ path, marker }: SolvePayload, signal: AbortSignal): Promise<string> {
+    const file = this.app.vault.getFileByPath(path);
+    if (!file) throw new Error("That note no longer exists.");
+
+    // The note may have been edited since the marker was listed: find it again.
+    const text = await this.readArticle(file);
+    const current = pickMarker(parseMarkers(text, this.parseOptions()), marker.raw, marker.start);
+    if (!current) throw new Error("The marker is no longer in the note.");
+    if (current.kind !== "sic" && current.question === "") throw new Error("Write the question first.");
+
+    const context = extractContext(text, current, this.settings.contextMode);
+    const claim = current.kind === "sic" ? extractClaim(text, current) : undefined;
+    const prompt = buildPrompt({
+      kind: current.kind,
+      question: current.question,
+      noteTitle: file.basename,
+      context,
+      claim,
+      inline: !isBlockMarker(text, current),
+      rejected: [],
+      maxCandidates: this.settings.maxCandidates,
+    });
+
+    const result = await this.resolver.solve({ kind: current.kind, prompt }, signal);
+    if (signal.aborted) throw new Error("Cancelled");
+
+    const note = await this.history.create(file, {
+      kind: current.kind,
+      alias: current.alias,
+      title: current.question || claim || current.kind,
+      question: current.question,
+      marker: current.raw,
+      asked: new Date(),
+      resolver: result.resolver,
+      verdict: current.kind === "sic" ? result.verdict : undefined,
+      context: context.text,
+      candidates: result.candidates,
+    });
+    return note.path;
+  }
+
+  /** Tell the user when a search ends, even if the sidebar is closed. */
+  private announce(job: Job<SolvePayload, string> | undefined): void {
+    if (!job) return;
+    const what = job.payload.marker.question || job.payload.marker.kind;
+    if (job.status === "ready") new Notice(`Lacuna: answers ready for “${what}”.`);
+    if (job.status === "failed") new Notice(`Lacuna: ${job.error}`, 10_000);
+  }
+
+  async openNote(path: string): Promise<void> {
+    const file = this.app.vault.getFileByPath(path);
+    if (!file) {
+      new Notice("That note no longer exists.");
+      return;
+    }
+    await this.app.workspace.getLeaf("tab").openFile(file);
+  }
+
+  // ---- Sidebar and editor -------------------------------------------------
 
   async activateView(): Promise<void> {
     const { workspace } = this.app;

@@ -2,6 +2,7 @@ import { ItemView, debounce, type ViewStateResult, type WorkspaceLeaf } from "ob
 import { KIND_HINTS } from "../lang/packs";
 import type { Marker } from "../marker";
 import type LacunaPlugin from "../main";
+import type { ItemState } from "../status";
 
 export const VIEW_TYPE_LACUNA = "lacuna-sidebar";
 
@@ -49,6 +50,9 @@ export class SidebarView extends ItemView {
   async onOpen(): Promise<void> {
     this.contentEl.addClass("lacuna-view");
     this.register(this.plugin.index.onChange(() => this.requestRender()));
+    this.register(this.plugin.queue.onChange(() => this.requestRender()));
+    // A history note that has just been written shows up in the metadata cache a moment later.
+    this.registerEvent(this.app.metadataCache.on("changed", () => this.requestRender()));
     this.registerEvent(this.app.workspace.on("file-open", () => this.requestRender()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.requestRender()));
     await this.render();
@@ -108,30 +112,81 @@ export class SidebarView extends ItemView {
       contentEl.createDiv({ cls: "lacuna-message", text: message });
       return;
     }
+    // One look at the history notes for the whole list, not one per marker.
+    const history = this.plugin.history.list();
     for (const [path, markers] of groups) {
       if (this.listScope === "vault") {
         const heading = contentEl.createDiv({ cls: "lacuna-note", attr: { title: path } });
         heading.createSpan({ text: path.replace(/\.md$/, "").split("/").pop() ?? path });
         heading.createSpan({ cls: "lacuna-count", text: String(markers.length) });
       }
-      for (const marker of markers) this.renderItem(contentEl, path, marker);
+      for (const marker of markers) this.renderItem(contentEl, path, marker, this.plugin.stateOf(path, marker, history));
     }
   }
 
-  private renderItem(parent: HTMLElement, path: string, marker: Marker): void {
-    const row = parent.createDiv({ cls: "lacuna-item", attr: { role: "button", tabindex: "0" } });
-    row.createSpan({ cls: "lacuna-kind", text: marker.kind, attr: { title: KIND_HINTS[marker.kind] } });
-    row.createSpan({
+  private renderItem(parent: HTMLElement, path: string, marker: Marker, state: ItemState): void {
+    const item = parent.createDiv({ cls: "lacuna-item" });
+
+    // The line with the question jumps to the marker.
+    const line = item.createDiv({ cls: "lacuna-line", attr: { role: "button", tabindex: "0" } });
+    line.createSpan({ cls: "lacuna-kind", text: marker.kind, attr: { title: KIND_HINTS[marker.kind] } });
+    line.createSpan({
       cls: marker.question === "" ? "lacuna-question lacuna-empty" : "lacuna-question",
       text: marker.question === "" ? "(no question yet)" : marker.question,
     });
-    const open = (): void => void this.plugin.revealMarker(path, marker);
-    row.addEventListener("click", open);
-    row.addEventListener("keydown", (e) => {
+    const jump = (): void => void this.plugin.revealMarker(path, marker);
+    line.addEventListener("click", jump);
+    line.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
-        open();
+        jump();
       }
     });
+
+    // Below it, what is going on and what can be done.
+    const actions = item.createDiv({ cls: "lacuna-actions" });
+    const status = (text: string, cls: string, title?: string): void => {
+      actions.createSpan({ cls: `lacuna-status ${cls}`, text, attr: title ? { title } : {} });
+    };
+    const button = (text: string, onClick: () => void, opts: { cta?: boolean; title?: string; disabled?: boolean } = {}): void => {
+      const b = actions.createEl("button", { text, cls: opts.cta ? "mod-cta" : undefined, attr: opts.title ? { title: opts.title } : {} });
+      b.disabled = opts.disabled ?? false;
+      b.addEventListener("click", onClick);
+    };
+    // Every kind but `sic` needs a question; `sic` checks the claim before the marker.
+    const needsQuestion = marker.kind !== "sic" && marker.question === "";
+    const solve = (): void => this.plugin.solve(path, marker);
+
+    switch (state.state) {
+      case "idle":
+        button("Solve", solve, {
+          cta: true,
+          disabled: needsQuestion,
+          title: needsQuestion ? "Write the question first" : "Search for an answer",
+        });
+        break;
+      case "queued":
+        status("queued", "lacuna-status-wait");
+        button("Cancel", () => this.plugin.cancel(path, marker));
+        break;
+      case "searching":
+        status("searching…", "lacuna-status-wait");
+        button("Cancel", () => this.plugin.cancel(path, marker));
+        break;
+      case "failed":
+        status("failed", "lacuna-status-failed", state.error);
+        button("Retry", solve);
+        actions.createDiv({ cls: "lacuna-error", text: state.error });
+        break;
+      case "ready":
+        status("answers ready", "lacuna-status-ready");
+        button("Open note", () => void this.plugin.openNote(state.notePath), { cta: true });
+        break;
+      case "rejected":
+        status("rejected", "lacuna-status-rejected");
+        button("Open note", () => void this.plugin.openNote(state.notePath));
+        button("Solve again", solve, { disabled: needsQuestion });
+        break;
+    }
   }
 }
