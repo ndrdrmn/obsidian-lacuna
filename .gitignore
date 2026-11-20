@@ -2,5 +2,11 @@ node_modules/
 main.js
 *.map
 data.json
-test-vault/.obsidian/plugins/lacuna/main.js
+
+# Test vault: keep the notes and the list of enabled plugins, not Obsidian's own state
+# or the build output copied into the plugin folder.
+test-vault/.obsidian/plugins/lacuna/
+test-vault/.obsidian/app.json
+test-vault/.obsidian/appearance.json
+test-vault/.obsidian/core-plugins.json
 test-vault/.obsidian/workspace*.json
