@@ -1,0 +1,6 @@
+node_modules/
+main.js
+*.map
+data.json
+test-vault/.obsidian/plugins/lacuna/main.js
+test-vault/.obsidian/workspace*.json

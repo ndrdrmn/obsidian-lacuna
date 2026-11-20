@@ -1,0 +1,9 @@
+{
+  "id": "lacuna",
+  "name": "Lacuna",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Mark what you don't know yet with ==?…==, keep writing, and let Claude propose sourced answers later.",
+  "author": "Lacuna",
+  "isDesktopOnly": true
+}
