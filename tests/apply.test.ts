@@ -114,6 +114,17 @@ describe("isBlockMarker", () => {
     expect(isBlockMarker(only, span(only))).toBe(true);
   });
 
+  it("is true for a marker over several lines that fills them", () => {
+    const t = "intro\n==?glossa: how it\nworked==\noutro";
+    expect(isBlockMarker(t, span(t))).toBe(true);
+  });
+
+  it("is false when text shares the first or the last line of a multi-line marker", () => {
+    for (const t of ["see ==?glossa: how it\nworked==", "==?glossa: how it\nworked== more"]) {
+      expect(isBlockMarker(t, span(t))).toBe(false);
+    }
+  });
+
   it("is false when other text shares the line", () => {
     for (const t of ["see ==?glossa: x==", "==?glossa: x== more", "a ==?glossa: x== b"]) {
       expect(isBlockMarker(t, span(t))).toBe(false);

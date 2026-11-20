@@ -24,9 +24,12 @@ interface Boundary {
 
 type Bounds = [number, number];
 
-/** Markers contain `?`, which must not be taken for the end of a sentence. */
+/**
+ * Markers contain `?`, which must not be taken for the end of a sentence.
+ * A marker may run over several lines, but never across a blank line; line breaks are kept.
+ */
 function maskMarkers(text: string): string {
-  return text.replace(/==\?[^\r\n]*?==/g, (m) => "x".repeat(m.length));
+  return text.replace(/==\?(?:(?!\r?\n[ \t]*\r?\n)[\s\S])*?==/g, (m) => m.replace(/[^\r\n]/g, "x"));
 }
 
 /** Sentence ends (. ! ? …), and the start of a list item, heading or quote on a new line. */

@@ -12,9 +12,9 @@ Put the cursor on the empty line below and run `/adloc` (the Slash commands core
 
 Select some words and run `/adloc` or right-click "Ask about this…": the selection becomes the question. Try with: ==?the exact release date.==
 
-==? sdfsf==
+==? default question==
 
-==?fontes:  
+==?fontes:  ==
 
 ==?glossa: ==
 ## Markers to list (step 4)
@@ -31,6 +31,10 @@ On its own line, so a block answer is allowed:
 
 ==?explain: how the Plug and Play detection worked==
 
+==?suppl: can I write on
+multiple lines
+and they appear as a single question
+in the sidebar==
 
 ## Things that must NOT be listed
 
@@ -42,7 +46,8 @@ Inline code: `==?suppl: not a marker==`
 ==?suppl: not a marker, inside a code block==
 ```
 
-==?suppl: sfdsfgdfgdg
-dfgdfgdfgdg
-ddgfdgdfgd==
+==?sic: unclosed multiline
+
+
+
 

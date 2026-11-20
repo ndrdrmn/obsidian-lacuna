@@ -1,11 +1,14 @@
 import { PluginSettingTab, Setting, type App } from "obsidian";
 import { ALL_PACK_IDS, KINDS, KIND_HINTS, getPack, packName } from "./lang/packs";
 import type LacunaPlugin from "./main";
-import { setPopupLang, toggleLang, type DefaultKind } from "./settings-model";
+import { cleanFolderName } from "./paths";
+import { DEFAULT_SETTINGS, setPopupLang, toggleLang, type DefaultKind } from "./settings-model";
+
+const APPARATUS_URL = "https://en.wikipedia.org/wiki/Critical_apparatus";
 
 /**
- * Minimal settings tab: what step 3 needs (default kind, popup language, recognised languages).
- * The Idiolect editor, the Apparatus folder and the rest come with step 7.
+ * Minimal settings tab: what steps 3 and 4 need (default kind, languages, history folder).
+ * The Idiolect editor, the history-note location and the rest come with step 7.
  */
 export class LacunaSettingTab extends PluginSettingTab {
   constructor(
@@ -34,18 +37,21 @@ export class LacunaSettingTab extends PluginSettingTab {
         for (const kind of KINDS) dd.addOption(kind, `${kind}: ${KIND_HINTS[kind]}`);
         dd.setValue(settings.defaultKind).onChange(async (value) => {
           this.plugin.settings.defaultKind = value as DefaultKind;
-          await this.plugin.saveSettings();
+          await this.plugin.applySettings();
         });
       });
 
     new Setting(containerEl)
       .setName("Popup language")
-      .setDesc("The language of the keywords listed after you type ==?. One at a time keeps the list short. Choosing a language also recognises it.")
+      .setDesc(
+        "The language of the keywords listed after you type ==?. One at a time keeps the list short. " +
+          "Choosing a language also recognises it.",
+      )
       .addDropdown((dd) => {
         for (const id of ALL_PACK_IDS) dd.addOption(id, packName(id));
         dd.setValue(settings.popupLang).onChange(async (id) => {
           this.plugin.settings = setPopupLang(this.plugin.settings, id);
-          await this.plugin.saveSettings();
+          await this.plugin.applySettings();
           this.display();
         });
       });
@@ -68,10 +74,38 @@ export class LacunaSettingTab extends PluginSettingTab {
         .addToggle((t) =>
           t.setValue(settings.enabledLangs.includes(id)).onChange(async (on) => {
             this.plugin.settings = toggleLang(this.plugin.settings, id, on);
-            await this.plugin.saveSettings();
+            await this.plugin.applySettings();
             this.display();
           }),
         );
     }
+
+    new Setting(containerEl).setName("History notes").setHeading();
+
+    const desc = document.createDocumentFragment();
+    const link = document.createElement("a");
+    link.href = APPARATUS_URL;
+    link.textContent = "apparatus criticus";
+    desc.append(
+      "The folder of the history notes: one per question, recording the candidates, the sources and your " +
+        "choice. Named after the ",
+      link,
+      " of a scholarly edition, which records the sources and the alternative readings. Notes in this " +
+        "folder are never scanned for markers.",
+    );
+    new Setting(containerEl)
+      .setName("Apparatus folder")
+      .setDesc(desc)
+      .addText((t) => {
+        t.setPlaceholder(DEFAULT_SETTINGS.historyFolder)
+          .setValue(settings.historyFolder)
+          .onChange(async (value) => {
+            // Saved as you type; applied (a rescan) when you leave the field.
+            const folder = cleanFolderName(value);
+            this.plugin.settings.historyFolder = folder === "" ? DEFAULT_SETTINGS.historyFolder : folder;
+            await this.plugin.saveSettings();
+          });
+        t.inputEl.addEventListener("blur", () => void this.plugin.applySettings());
+      });
   }
 }

@@ -67,6 +67,15 @@ describe("extractContext", () => {
     expect(r.text).toBe("Before ==? foo== and ==?cf: x== then ==?suppl: y== end.");
   });
 
+  it("handles a marker that runs over a line break", () => {
+    const text = "Before. It was ==?suppl: exact\ndate== for Microsoft. After.";
+    const start = text.indexOf("==?");
+    const end = text.indexOf("date==") + "date==".length;
+    const r = extractContext(text, { start, end }, "sentence");
+    expect(r.text).toBe("It was ==?suppl: exact\ndate== for Microsoft.");
+    expect(r.text.slice(r.markerStart, r.markerEnd)).toBe("==?suppl: exact\ndate==");
+  });
+
   it("starts a new sentence at a list item", () => {
     const text = `- first item\n- second ${MARKER} item`;
     const r = ctx("sentence", text);

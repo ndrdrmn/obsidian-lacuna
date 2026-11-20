@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildAliasMap } from "../src/lang/keywords";
 import type { Kind } from "../src/lang/packs";
-import { formatAlias, frontmatterLength, maskNonProse, parseMarkers } from "../src/marker";
+import { formatAlias, frontmatterLength, lineKind, maskNonProse, parseMarkers } from "../src/marker";
 
 function parse(text: string, langs = ["la", "en", "it"], defaultKind: Kind | null = "suppl", idiolect = {}) {
   return parseMarkers(text, { aliasMap: buildAliasMap(langs, idiolect), defaultKind });
@@ -57,6 +57,102 @@ describe("parseMarkers: grammar", () => {
   it("allows an empty question (a freshly inserted marker)", () => {
     expect(parse("==? ==")[0]).toMatchObject({ kind: "suppl", question: "" });
     expect(parse("==?sic:==")[0]).toMatchObject({ kind: "sic", question: "" });
+  });
+});
+
+describe("parseMarkers: several lines", () => {
+  it("parses a marker that runs over a line break", () => {
+    const text = "Intro ==?suppl: the exact\nrelease date== end.";
+    const [m, ...rest] = parse(text);
+    expect(rest).toHaveLength(0);
+    expect(m.raw).toBe("==?suppl: the exact\nrelease date==");
+    expect(m.question).toBe("the exact release date");
+    expect([m.line, m.ch, m.endLine, m.endCh]).toEqual([0, 6, 1, 14]);
+    expect(text.slice(m.start, m.end)).toBe(m.raw);
+  });
+
+  it("gives the end position of a one-line marker too", () => {
+    const [m] = parse("a\n==?suppl: x== b");
+    expect([m.line, m.ch, m.endLine, m.endCh]).toEqual([1, 0, 1, 13]);
+  });
+
+  it("handles CRLF line endings", () => {
+    const text = "a ==?suppl: x\r\ny== b";
+    const [m] = parse(text);
+    expect(m.question).toBe("x y");
+    expect([m.line, m.ch, m.endLine, m.endCh]).toEqual([0, 2, 1, 3]);
+    expect(text.slice(m.start, m.end)).toBe(m.raw);
+  });
+
+  it("works with the default kind and with three lines", () => {
+    const [m] = parse("==?who designed\nthe startup\nsound==");
+    expect(m).toMatchObject({ kind: "suppl", question: "who designed the startup sound", endLine: 2 });
+  });
+
+  it("finds several markers over lines in one paragraph", () => {
+    const ms = parse("==?fill: a\nb== and ==?find: c\nd==");
+    expect(ms.map((m) => [m.kind, m.question])).toEqual([
+      ["suppl", "a b"],
+      ["fontes", "c d"],
+    ]);
+  });
+
+  it("never runs across a blank line", () => {
+    expect(parse("==?suppl: a\n\nb==")).toEqual([]);
+    expect(parse("==?suppl: a\n  \nb==")).toEqual([]);
+    const ms = parse("==?suppl: a\n\nb ==?sic: c==");
+    expect(ms.map((m) => m.question)).toEqual(["c"]);
+  });
+
+  it("never runs from one list item into the next, but follows a continuation line", () => {
+    expect(parse("- ==?suppl: a\n- b==")).toEqual([]);
+    expect(parse("- ==?suppl: a\n  continued==")[0].question).toBe("a continued");
+  });
+
+  it("never runs out of a heading or into a table row", () => {
+    expect(parse("# Title ==?suppl: a\nmore==")).toEqual([]);
+    expect(parse("| ==?suppl: a |\n| b== |")).toEqual([]);
+    expect(parse("| ==?suppl: a== |")).toHaveLength(1);
+  });
+
+  it("drops the > of a quote or callout on the continuation lines", () => {
+    const [m] = parse("> ==?suppl: first\n> second==");
+    expect(m.question).toBe("first second");
+    expect(m.raw).toBe("==?suppl: first\n> second==");
+  });
+
+  it("does not mistake the closing delimiter of a highlight, even over lines, for a marker", () => {
+    expect(parse("==important\ntext==? yes ==really==")).toEqual([]);
+  });
+
+  it("keeps a marker over lines that contains inline code", () => {
+    const [m] = parse("==?cf: `a==b`\nversus c==");
+    expect(m.question).toBe("`a==b` versus c");
+  });
+
+  it("skips a multi-line marker inside a code block", () => {
+    expect(parse("```\n==?suppl: a\nb==\n```")).toEqual([]);
+  });
+
+  it("reports where a later marker is after a multi-line one", () => {
+    const ms = parse("==?suppl: a\nb== then\n\nnext ==?sic: c==");
+    expect([ms[1].line, ms[1].ch]).toEqual([3, 5]);
+  });
+});
+
+describe("lineKind", () => {
+  it("classifies the lines that bound a paragraph", () => {
+    expect(lineKind("")).toBe("blank");
+    expect(lineKind("   \r")).toBe("blank");
+    expect(lineKind(">")).toBe("blank");
+    expect(lineKind("# Heading")).toBe("single");
+    expect(lineKind("| a | b |")).toBe("single");
+    expect(lineKind("- item")).toBe("start");
+    expect(lineKind("  1. item")).toBe("start");
+    expect(lineKind("> * item")).toBe("start");
+    expect(lineKind("plain text")).toBe("text");
+    expect(lineKind("1995. a year at the start of a wrapped line")).toBe("text");
+    expect(lineKind("#hashtag")).toBe("text");
   });
 });
 

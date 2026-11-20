@@ -17,8 +17,12 @@ describe("buildInsertion", () => {
     expect(buildInsertion("release date", "sic")).toEqual({ text: "==?sic: release date==", cursor: 22 });
   });
 
-  it("puts a multi-line selection on one line", () => {
-    expect(buildInsertion("a\nb\r\n  c")).toEqual({ text: "==?a b c==", cursor: 10 });
+  it("keeps the line breaks of a multi-line selection, a highlight can span lines", () => {
+    expect(buildInsertion("a\nb\r\n  c")).toEqual({ text: "==?a\nb\nc==", cursor: 10 });
+  });
+
+  it("drops blank lines, which would end the highlight", () => {
+    expect(buildInsertion("first\n\n  \nsecond")).toEqual({ text: "==?first\nsecond==", cursor: 17 });
   });
 
   it("treats a blank selection as no selection", () => {
@@ -32,12 +36,12 @@ describe("buildInsertion", () => {
 
 describe("matchTrigger", () => {
   it("fires right after ==?", () => {
-    expect(matchTrigger("text ==?")).toEqual({ start: 8, query: "" });
+    expect(matchTrigger("text ==?")).toEqual({ query: "" });
   });
 
   it("returns what has been typed of the keyword", () => {
-    expect(matchTrigger("text ==?su")).toEqual({ start: 8, query: "su" });
-    expect(matchTrigger("==?Vérif")).toEqual({ start: 3, query: "Vérif" });
+    expect(matchTrigger("text ==?su")).toEqual({ query: "su" });
+    expect(matchTrigger("==?Vérif")).toEqual({ query: "Vérif" });
   });
 
   it("stops at a space or a colon, so a typed question closes the popup", () => {
@@ -53,8 +57,8 @@ describe("matchTrigger", () => {
   });
 
   it("works after a complete marker or highlight on the same line", () => {
-    expect(matchTrigger("==?fill: a== and ==?s")).toEqual({ start: 20, query: "s" });
-    expect(matchTrigger("==b== ==?")).toEqual({ start: 9, query: "" });
+    expect(matchTrigger("==?fill: a== and ==?s")).toEqual({ query: "s" });
+    expect(matchTrigger("==b== ==?")).toEqual({ query: "" });
   });
 
   it("does not fire on the closing delimiter of a highlight or marker", () => {
@@ -64,5 +68,20 @@ describe("matchTrigger", () => {
 
   it("does not fire on ===?", () => {
     expect(matchTrigger("===?")).toBeNull();
+  });
+
+  describe("over several lines (the prefix is the paragraph up to the cursor)", () => {
+    it("fires after a marker that was closed on an earlier line", () => {
+      expect(matchTrigger("==?fill: a\nb== and ==?s")).toEqual({ query: "s" });
+    });
+
+    it("does not fire on the closing delimiter of a marker opened on an earlier line", () => {
+      expect(matchTrigger("==?suppl: foo\nbar ==?")).toBeNull();
+      expect(matchTrigger("==?fill: a\nb==?x")).toBeNull();
+    });
+
+    it("does not fire on the closing delimiter of a highlight opened on an earlier line", () => {
+      expect(matchTrigger("==important\nhere==?")).toBeNull();
+    });
   });
 });

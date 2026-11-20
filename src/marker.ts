@@ -6,14 +6,17 @@ export interface Marker {
   /** Set when the keyword typed was not the Latin one: the word as typed, and its pack. */
   alias?: { word: string; packId: string };
   question: string;
-  /** The full marker text, `==?…==`. */
+  /** The full marker text, `==?…==`. It may contain line breaks. */
   raw: string;
   /** Offsets into the parsed text; `end` is exclusive. */
   start: number;
   end: number;
-  /** 0-based position of the marker's first character. */
+  /** 0-based position of the marker's first character... */
   line: number;
   ch: number;
+  /** ...and just after its last one. Equal to `line` when the marker is on one line. */
+  endLine: number;
+  endCh: number;
 }
 
 export interface ParseOptions {
@@ -114,58 +117,128 @@ export function maskNonProse(text: string): string {
   return t;
 }
 
+// How a line of Markdown relates to the paragraph around it. A highlight, and so a marker,
+// can run over several lines of one paragraph, but not across these boundaries.
+const BLANK_LINE = /^[ \t]*(?:>[ \t]*)*\r?$/;
+const OWN_BLOCK_LINE = /^[ \t]*(?:>[ \t]*)*(?:#{1,6}[ \t]|\|)/; // heading, table row
+const LIST_ITEM_START = /^[ \t]*(?:>[ \t]*)*(?:[-*+]|1[.)])[ \t]/;
+
+/**
+ * - `blank`: ends the paragraph
+ * - `single`: a heading or a table row, a block of its own that is only one line long
+ * - `start`: a list item, which starts a new paragraph that its next lines continue
+ * - `text`: continues the paragraph above
+ */
+export type LineKind = "blank" | "single" | "start" | "text";
+
+export function lineKind(line: string): LineKind {
+  if (BLANK_LINE.test(line)) return "blank";
+  if (OWN_BLOCK_LINE.test(line)) return "single";
+  if (LIST_ITEM_START.test(line)) return "start";
+  return "text";
+}
+
+/** Cut the text into paragraphs: the ranges inside which `==` delimiters pair up. */
+function proseSegments(masked: string, lineStarts: number[]): Range[] {
+  const out: Range[] = [];
+  let segStart = -1;
+  const flush = (lineStart: number): void => {
+    if (segStart >= 0) out.push([segStart, lineStart - 1]); // up to the previous line's end
+    segStart = -1;
+  };
+  for (let i = 0; i < lineStarts.length; i++) {
+    const start = lineStarts[i];
+    const end = i + 1 < lineStarts.length ? lineStarts[i + 1] - 1 : masked.length;
+    switch (lineKind(masked.slice(start, end))) {
+      case "blank":
+        flush(start);
+        break;
+      case "single":
+        flush(start);
+        out.push([start, end]);
+        break;
+      case "start":
+        flush(start);
+        segStart = start;
+        break;
+      case "text":
+        if (segStart < 0) segStart = start;
+        break;
+    }
+  }
+  if (segStart >= 0) out.push([segStart, masked.length]);
+  return out;
+}
+
 /** Find every `==?…==` in the text. */
 export function parseMarkers(text: string, opts: ParseOptions): Marker[] {
   const masked = maskNonProse(text);
+
+  const lineStarts = [0];
+  for (let i = masked.indexOf("\n"); i !== -1; i = masked.indexOf("\n", i + 1)) lineStarts.push(i + 1);
+  const posAt = (offset: number): { line: number; ch: number } => {
+    let lo = 0;
+    let hi = lineStarts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (lineStarts[mid] <= offset) lo = mid;
+      else hi = mid - 1;
+    }
+    return { line: lo, ch: offset - lineStarts[lo] };
+  };
+
   const markers: Marker[] = [];
-  let lineStart = 0;
-  let lineNo = 0;
-  for (const line of masked.split("\n")) {
-    // Pair the `==` delimiters on the line left to right, the way Obsidian pairs
+  for (const [from, to] of proseSegments(masked, lineStarts)) {
+    // Pair the `==` delimiters of the paragraph left to right, the way Obsidian pairs
     // highlights. That way the `==?` in `==important==? yes` (a closing delimiter
     // followed by a question mark) is not mistaken for a marker.
+    const segment = masked.slice(from, to);
     const delims: number[] = [];
     const re = /==/g;
     let d: RegExpExecArray | null;
-    while ((d = re.exec(line))) delims.push(d.index);
+    while ((d = re.exec(segment))) delims.push(d.index);
     for (let i = 0; i + 1 < delims.length; i += 2) {
-      const open = delims[i];
-      const close = delims[i + 1];
-      if (line[open + 2] !== "?") continue;
-      const start = lineStart + open;
-      const end = lineStart + close + 2;
-      const marker = buildMarker(text, start, end, lineNo, open, opts);
+      if (segment[delims[i] + 2] !== "?") continue;
+      const start = from + delims[i];
+      const end = from + delims[i + 1] + 2;
+      const begin = posAt(start);
+      const finish = posAt(end);
+      const marker = buildMarker(text, start, end, begin, finish, opts);
       if (marker) markers.push(marker);
     }
-    lineStart += line.length + 1;
-    lineNo++;
   }
   return markers;
+}
+
+/** One line of text: line breaks, and the `>` of a quote on the next line, become a space. */
+function oneLine(s: string): string {
+  return s.replace(/\s*\r?\n[ \t]*(?:>[ \t]*)*/g, " ").trim();
 }
 
 function buildMarker(
   text: string,
   start: number,
   end: number,
-  line: number,
-  ch: number,
+  begin: { line: number; ch: number },
+  finish: { line: number; ch: number },
   opts: ParseOptions,
 ): Marker | null {
   const raw = text.slice(start, end);
   const inner = text.slice(start + 3, end - 2);
+  const where = { start, end, line: begin.line, ch: begin.ch, endLine: finish.line, endCh: finish.ch };
 
   // `word:` where the part before the first colon is a single token.
-  const kw = /^\s*([^\s:=?]+)\s*:(.*)$/.exec(inner);
+  const kw = /^\s*([^\s:=?]+)\s*:([\s\S]*)$/.exec(inner);
   if (kw) {
     const entry = opts.aliasMap.get(normalize(kw[1]));
     if (entry) {
       const alias = entry.packId === LATIN_ID ? undefined : { word: kw[1], packId: entry.packId };
-      return { kind: entry.kind, alias, question: kw[2].trim(), raw, start, end, line, ch };
+      return { kind: entry.kind, alias, question: oneLine(kw[2]), raw, ...where };
     }
   }
   // No keyword, or an unknown one: the whole text is the question.
   if (opts.defaultKind === null) return null;
-  return { kind: opts.defaultKind, question: inner.trim(), raw, start, end, line, ch };
+  return { kind: opts.defaultKind, question: oneLine(inner), raw, ...where };
 }
 
 /** `alias:` value of a history note, e.g. `verifica (it)`. */

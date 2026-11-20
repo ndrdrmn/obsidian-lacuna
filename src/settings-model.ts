@@ -1,5 +1,6 @@
 import { isValidAliasFormat, type Idiolect } from "./lang/keywords";
 import { ALL_PACK_IDS, KINDS, LATIN_ID, type Kind } from "./lang/packs";
+import { cleanFolderName } from "./paths";
 
 export type DefaultKind = Kind | "none";
 
@@ -12,6 +13,8 @@ export interface LacunaSettings {
   idiolect: Idiolect;
   /** Kind of a marker without a known keyword, or "none" to ignore such markers. */
   defaultKind: DefaultKind;
+  /** Folder of the history notes (the apparatus). Notes inside it are never scanned for markers. */
+  historyFolder: string;
 }
 
 export const DEFAULT_SETTINGS: LacunaSettings = {
@@ -19,6 +22,7 @@ export const DEFAULT_SETTINGS: LacunaSettings = {
   popupLang: LATIN_ID,
   idiolect: {},
   defaultKind: "suppl",
+  historyFolder: "Apparatus",
 };
 
 /** Turn whatever `loadData()` returned into valid settings. */
@@ -49,7 +53,10 @@ export function normalizeSettings(raw: unknown): LacunaSettings {
       ? (r.defaultKind as DefaultKind)
       : DEFAULT_SETTINGS.defaultKind;
 
-  return { enabledLangs: enabled, popupLang, idiolect, defaultKind };
+  const folder = typeof r.historyFolder === "string" ? cleanFolderName(r.historyFolder) : "";
+  const historyFolder = folder !== "" ? folder : DEFAULT_SETTINGS.historyFolder;
+
+  return { enabledLangs: enabled, popupLang, idiolect, defaultKind, historyFolder };
 }
 
 /** Check or uncheck a language. Unchecking the last one checks Latin again. */

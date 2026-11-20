@@ -44,6 +44,7 @@ August 24, 1995
 - **Location:** folder `Apparatus/` by default. Settings: the folder name, and its location (one vault folder, or a subfolder next to the article).
 - **File name:** `YYYY-MM-DD <article> — <question slug>.md`.
 - **Pending note ↔ marker matching:** by the `article` link plus the exact `marker` text. If no marker matches, the item is shown as an orphan with *Discard*.
+- **A marker can span lines**, so `marker:` must be written as a double-quoted YAML string with `\n` escapes (JSON-style quoting), never as a plain scalar. Compare with line endings normalised: the editor uses `\n` while the file may use `\r\n`.
 - **Reject:** the marker stays yellow, the note gets status `rejected` and keeps its candidates. Retry tells the agent "not these".
 
 ## Citation
@@ -67,8 +68,17 @@ If the article is open in an editor, use `editor.replaceRange` so the change is 
 
 The number of languages has no effect on speed.
 
-- `metadataCache` doesn't index highlights. It is used for its `changed`, rename and delete events, so only the affected note is scanned again, and its `sections` let the scanner skip code blocks.
-- The vault index is kept in memory and built the first time the vault toggle is used.
+- `metadataCache` doesn't index highlights. It is only used to learn *which* note changed (its `changed` event, plus vault rename and delete); that note is then read and parsed again. The parser skips code itself (`maskNonProse`), so the cache's `sections` are not needed.
+- While you type, the open note is re-parsed from the editor's text (`editor-change`, debounced 250 ms), without waiting for a save.
+- `src/scanner.ts` (`MarkerIndex`) keeps one entry per scanned note. A note without `==?` is never parsed. The vault is scanned once, the first time the vault toggle is used, in batches of 50 notes. Before that, only opened notes are indexed, and `metadataCache` events are ignored for other notes so that Obsidian's startup indexing doesn't make us read the whole vault.
+- **Notes inside the history folder are never scanned** (`isHistoryPath`): they quote their marker. With the "next to the article" location, any directory of the path may be the history folder.
+- **A settings change** (languages, Idiolect, default kind, history folder) calls `reset()`: the index is cleared, and the vault is scanned again if it had been scanned. A scan that was running during the reset throws its results away (generation counter).
+
+## Sidebar list
+
+- `src/view/SidebarView.ts`: an `ItemView` with a toggle between **This note** and **Whole vault** (grouped by note). The toggle is saved with the workspace layout. Open it from the ribbon icon or the command "Open sidebar".
+- Each item shows the canonical kind and the question; a marker with no question yet is shown as "(no question yet)".
+- Clicking an item opens the note (reusing a tab that already shows it), switches it to editing mode if it was in reading mode, and selects the marker. If the line changed in the meantime, the marker is searched again on that line.
 
 ## Queue and resolvers
 

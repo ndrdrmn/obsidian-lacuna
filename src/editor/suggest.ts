@@ -12,6 +12,23 @@ import { matchTrigger } from "../insert";
 import { normalize, type KeywordItem } from "../lang/keywords";
 import { KIND_HINTS } from "../lang/packs";
 import type LacunaPlugin from "../main";
+import { lineKind } from "../marker";
+
+/** How far up to look for the start of the paragraph. Typing must stay instant. */
+const MAX_LINES_UP = 200;
+
+/** The text of the paragraph from its start to the cursor (see `lineKind`). */
+function paragraphPrefix(editor: Editor, cursor: EditorPosition): string {
+  let prefix = editor.getLine(cursor.line).slice(0, cursor.ch);
+  let kind = lineKind(editor.getLine(cursor.line));
+  for (let n = cursor.line; kind === "text" && n > 0 && cursor.line - n < MAX_LINES_UP; n--) {
+    const above = editor.getLine(n - 1);
+    kind = lineKind(above);
+    if (kind === "blank" || kind === "single") break;
+    prefix = `${above}\n${prefix}`;
+  }
+  return prefix;
+}
 
 function renderItem(item: KeywordItem, el: HTMLElement): void {
   el.createDiv({ text: item.word });
@@ -25,10 +42,9 @@ export class MarkerSuggest extends EditorSuggest<KeywordItem> {
   }
 
   onTrigger(cursor: EditorPosition, editor: Editor, _file: TFile | null): EditorSuggestTriggerInfo | null {
-    const prefix = editor.getLine(cursor.line).slice(0, cursor.ch);
-    const t = matchTrigger(prefix);
+    const t = matchTrigger(paragraphPrefix(editor, cursor));
     if (!t) return null;
-    return { start: { line: cursor.line, ch: t.start }, end: cursor, query: t.query };
+    return { start: { line: cursor.line, ch: cursor.ch - t.query.length }, end: cursor, query: t.query };
   }
 
   getSuggestions(context: EditorSuggestContext): KeywordItem[] {

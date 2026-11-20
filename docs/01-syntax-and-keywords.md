@@ -8,7 +8,10 @@
 
 - Only `==?…==` is a marker. Plain `==highlights==` are never touched.
 - It renders yellow without the plugin, and Dataview ignores it.
-- Single line. The question can't contain `==`. Code blocks and inline code are ignored.
+- A marker may run over several lines, like any Obsidian highlight. It stops at the paragraph's end: it never crosses a blank line, and never runs out of a heading, into a table row or from one list item into the next (a continuation line of the same list item is fine). In a quote or callout the `>` of the continuation lines is dropped from the question.
+- The question can't contain `==`. Code blocks and inline code are ignored.
+- The delimiters are paired per paragraph, left to right, as Obsidian pairs highlights. A stray `==` earlier in a paragraph therefore shifts the pairing for the rest of that paragraph, exactly as it does in the rendered note.
+- The question is read as one line: line breaks become spaces.
 - The **keyword** is the word before the first `:`. It is matched against the enabled language packs, ignoring case and accents (`verifier` = `vérifier`).
 - With no keyword, or an unknown one, the **default kind** setting decides (see below).
 
@@ -71,7 +74,7 @@ What the command and the right-click entry insert:
 | Situation | Result |
 |---|---|
 | No selection, default kind set | `==? ==`, cursor before the closing `==` |
-| Selection, default kind set | `==?selection==` (the selection becomes the question, on one line) |
+| Selection, default kind set | `==?selection==` (the selection becomes the question; its line breaks stay, blank lines are dropped because they would end the highlight) |
 | Default kind None | A picker asks for the kind first, then inserts `==?kw: ==` or `==?kw: selection==` |
 | Selection containing `==` | Refused with a notice: a marker cannot contain `==` |
 

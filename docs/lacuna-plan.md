@@ -22,7 +22,7 @@ Requirements throughout: plain markdown, private (everything stays local except 
 | # | Topic | Decision |
 |---|---|---|
 | D1 | Resolver | The plugin spawns the local `claude -p` CLI. The history-note format is the contract, so a terminal skill can be added later. |
-| D2 | Syntax | `==?keyword: question==`. Only `==?…==` is a marker; plain `==highlights==` are never touched. It renders yellow without the plugin, and Dataview ignores it. The keyword is the word before the first `:`, matched against the enabled language packs, ignoring case and accents (§3b). Single line; the question can't contain `==`; code blocks and inline code are ignored. With no keyword, or an unknown one, the marker follows D23. |
+| D2 | Syntax | `==?keyword: question==`. Only `==?…==` is a marker; plain `==highlights==` are never touched. It renders yellow without the plugin, and Dataview ignores it. The keyword is the word before the first `:`, matched against the enabled language packs, ignoring case and accents (§3b). A marker may run over several lines like any highlight, but never across a blank line, a heading, a table row or from one list item into the next (see `docs/01`); the question can't contain `==`; code blocks and inline code are ignored. With no keyword, or an unknown one, the marker follows D23. |
 | D3 | Long answers | The full text (paragraph or table) replaces the marker, with the citation appended. |
 | D4 | Sidebar scope | Current note by default, with a toggle for the whole vault (grouped by note). |
 | D5 | Kinds | Latin canonical names: `suppl` (supply a missing value), `sic` (verify the claim just before the marker), `fontes` (find sources), `glossa` (explain), `cf` (compare). |

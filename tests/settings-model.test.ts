@@ -23,8 +23,15 @@ describe("normalizeSettings", () => {
       popupLang: "it",
       idiolect: { suppl: "gap" },
       defaultKind: "none",
+      historyFolder: "Notes/Apparatus",
     });
-    expect(s).toEqual({ enabledLangs: ["it", "idiolect"], popupLang: "it", idiolect: { suppl: "gap" }, defaultKind: "none" });
+    expect(s).toEqual({
+      enabledLangs: ["it", "idiolect"],
+      popupLang: "it",
+      idiolect: { suppl: "gap" },
+      defaultKind: "none",
+      historyFolder: "Notes/Apparatus",
+    });
   });
 
   it("drops unknown languages and duplicates", () => {
@@ -50,6 +57,13 @@ describe("normalizeSettings", () => {
   it("rejects an unknown default kind", () => {
     expect(normalizeSettings({ defaultKind: "explain" }).defaultKind).toBe("suppl");
     expect(normalizeSettings({ defaultKind: "cf" }).defaultKind).toBe("cf");
+  });
+
+  it("cleans the history folder and falls back to Apparatus", () => {
+    expect(normalizeSettings({ historyFolder: " Research/Apparatus/ " }).historyFolder).toBe("Research/Apparatus");
+    expect(normalizeSettings({ historyFolder: "" }).historyFolder).toBe("Apparatus");
+    expect(normalizeSettings({ historyFolder: "../x" }).historyFolder).toBe("Apparatus");
+    expect(normalizeSettings({ historyFolder: 3 }).historyFolder).toBe("Apparatus");
   });
 
   it("keeps only well-formed Idiolect words, trimmed", () => {
