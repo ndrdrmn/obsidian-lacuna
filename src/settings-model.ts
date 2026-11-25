@@ -1,6 +1,6 @@
 import type { CitationStyle } from "./apply";
 import type { ContextMode } from "./context";
-import { isValidAliasFormat, type Idiolect } from "./lang/keywords";
+import { isValidAliasFormat, validateAlias, type Idiolect } from "./lang/keywords";
 import { ALL_PACK_IDS, KINDS, LATIN_ID, type Kind } from "./lang/packs";
 import { cleanFolderName } from "./paths";
 
@@ -22,7 +22,10 @@ export interface LacunaSettings {
   defaultKind: DefaultKind;
   /** Folder of the history notes (the apparatus). Notes inside it are never scanned for markers. */
   historyFolder: string;
-  /** One folder in the vault, or a folder of that name next to each article. */
+  /**
+   * `vault`: one apparatus folder for the whole vault. `article`: an apparatus folder of that name in the
+   * folder of each article that has lacunae, shared by the articles in it.
+   */
   historyLocation: HistoryLocation;
   /** How much of the note is sent to the search, besides its title. */
   contextMode: ContextMode;
@@ -122,6 +125,25 @@ export function normalizeSettings(raw: unknown): LacunaSettings {
     timeoutSec: clampInt(r.timeoutSec, 10, 900, DEFAULT_SETTINGS.timeoutSec),
     maxCandidates: clampInt(r.maxCandidates, 1, 5, DEFAULT_SETTINGS.maxCandidates),
   };
+}
+
+/**
+ * The user types a word for `kind` in the Idiolect editor. A word that is acceptable (see
+ * `validateAlias`: one word, and not already another kind's in any pack or in the Idiolect) is stored,
+ * trimmed; an empty one removes the alias. A refused word changes nothing and says why.
+ */
+export function setIdiolectWord(
+  s: LacunaSettings,
+  kind: Kind,
+  word: string,
+): { settings: LacunaSettings; error: string | null } {
+  const error = validateAlias(word, kind, s.idiolect);
+  if (error) return { settings: s, error };
+  const idiolect: Idiolect = { ...s.idiolect };
+  const w = word.trim();
+  if (w === "") delete idiolect[kind];
+  else idiolect[kind] = w;
+  return { settings: { ...s, idiolect }, error: null };
 }
 
 /** Check or uncheck a language. Unchecking the last one checks Latin again. */

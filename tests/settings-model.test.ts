@@ -4,6 +4,7 @@ import {
   defaultKindOrNull,
   isValidModel,
   normalizeSettings,
+  setIdiolectWord,
   setPopupLang,
   toggleLang,
   type LacunaSettings,
@@ -176,5 +177,46 @@ describe("defaultKindOrNull", () => {
   it("maps none to null", () => {
     expect(defaultKindOrNull(base({ defaultKind: "none" }))).toBeNull();
     expect(defaultKindOrNull(base({ defaultKind: "sic" }))).toBe("sic");
+  });
+});
+
+describe("setIdiolectWord", () => {
+  it("stores a word for a kind, trimmed", () => {
+    const r = setIdiolectWord(base(), "suppl", "  gap ");
+    expect(r.error).toBeNull();
+    expect(r.settings.idiolect).toEqual({ suppl: "gap" });
+  });
+
+  it("does not touch the settings it was given", () => {
+    const s = base();
+    setIdiolectWord(s, "suppl", "gap");
+    expect(s.idiolect).toEqual({});
+  });
+
+  it("an empty word removes the alias", () => {
+    const s = base({ idiolect: { suppl: "gap", sic: "chk" } });
+    expect(setIdiolectWord(s, "suppl", "  ").settings.idiolect).toEqual({ sic: "chk" });
+  });
+
+  it("refuses a word that already means another kind, in a built-in pack or in the Idiolect", () => {
+    const builtIn = setIdiolectWord(base(), "suppl", "verifica");
+    expect(builtIn.error).toMatch(/already means sic in Italiano/);
+    expect(builtIn.settings.idiolect).toEqual({});
+
+    const own = setIdiolectWord(base({ idiolect: { sic: "chk" } }), "cf", "CHK");
+    expect(own.error).toMatch(/already means sic in Idiolect/);
+  });
+
+  it("allows the word a kind already has, and a word that is not one word", () => {
+    expect(setIdiolectWord(base(), "suppl", "fill").error).toBeNull(); // 'fill' is suppl in English
+    expect(setIdiolectWord(base(), "suppl", "two words").error).toMatch(/single word/);
+    expect(setIdiolectWord(base(), "suppl", "a:b").error).toMatch(/single word/);
+  });
+
+  it("lets a word move from one kind to the other once it is cleared", () => {
+    const s = base({ idiolect: { sic: "chk" } });
+    expect(setIdiolectWord(s, "cf", "chk").error).not.toBeNull();
+    const cleared = setIdiolectWord(s, "sic", "").settings;
+    expect(setIdiolectWord(cleared, "cf", "chk").settings.idiolect).toEqual({ cf: "chk" });
   });
 });

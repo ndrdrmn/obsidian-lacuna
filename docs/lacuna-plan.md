@@ -190,7 +190,7 @@ test-vault/               sample articles; plugin built into .obsidian/plugins/l
 4. **Listing:** the scanner and the sidebar list, current note and vault toggle. Clicking an item jumps to the marker.
 5. **Solving:** `history.ts` (`kind` + `alias`), the queue and both resolvers. The pending note gets written.
 6. **Review and apply** (done): the review dialog (Accept, Edit, Reject, Search again), the replacement and citation, and the history-note status updates.
-7. **Settings tab and README:**
+7. **Settings tab and README** (done):
    - Apparatus folder name and location, with the explanation and Wikipedia link.
    - Recognised languages, popup language, and the Idiolect editor with live collision messages.
    - Default kind, with its warning.

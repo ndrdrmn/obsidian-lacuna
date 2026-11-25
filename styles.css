@@ -298,3 +298,13 @@
   justify-content: flex-end;
   gap: var(--size-4-2);
 }
+
+/* Settings: a word that was refused */
+.lacuna-setting-error {
+  color: var(--text-error);
+  font-size: var(--font-ui-smaller);
+}
+
+input.lacuna-invalid {
+  border-color: var(--text-error);
+}

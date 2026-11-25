@@ -1,6 +1,8 @@
 import { Notice, PluginSettingTab, Setting, type App } from "obsidian";
 import type { ContextMode } from "./context";
-import { ALL_PACK_IDS, KINDS, KIND_HINTS, getPack, packName } from "./lang/packs";
+import type { CitationStyle } from "./apply";
+import { findIdiolectConflicts } from "./lang/keywords";
+import { ALL_PACK_IDS, IDIOLECT_ID, KINDS, KIND_HINTS, getPack, packName } from "./lang/packs";
 import type LacunaPlugin from "./main";
 import { cleanFolderName } from "./paths";
 import { testClaude } from "./resolvers/claudeCli";
@@ -8,6 +10,7 @@ import {
   CONTEXT_MODES,
   DEFAULT_SETTINGS,
   isValidModel,
+  setIdiolectWord,
   setPopupLang,
   toggleLang,
   type DefaultKind,
@@ -16,10 +19,7 @@ import {
 
 const APPARATUS_URL = "https://en.wikipedia.org/wiki/Critical_apparatus";
 
-/**
- * Settings tab: what steps 3 to 5 need. The Idiolect editor, the citation style and the
- * rest come with steps 6 and 7.
- */
+/** The settings tab: markers and languages (with the Idiolect editor), history notes, citation, search and Claude. */
 export class LacunaSettingTab extends PluginSettingTab {
   constructor(
     app: App,
@@ -77,7 +77,12 @@ export class LacunaSettingTab extends PluginSettingTab {
 
     for (const id of ALL_PACK_IDS) {
       const pack = getPack(id);
-      const words = pack ? KINDS.map((k) => pack.aliases[k]).join(" · ") : "your own words (editor coming)";
+      const own = KINDS.filter((k) => settings.idiolect[k]).map((k) => settings.idiolect[k]);
+      const words = pack
+        ? KINDS.map((k) => pack.aliases[k]).join(" · ")
+        : own.length > 0
+          ? own.join(" · ")
+          : "your own words, edited below once it is checked";
       new Setting(containerEl)
         .setName(packName(id))
         .setDesc(words)
@@ -89,6 +94,8 @@ export class LacunaSettingTab extends PluginSettingTab {
           }),
         );
     }
+
+    if (settings.enabledLangs.includes(IDIOLECT_ID)) this.renderIdiolect(containerEl);
 
     new Setting(containerEl).setName("History notes").setHeading();
 
@@ -119,13 +126,36 @@ export class LacunaSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Where the history notes go")
-      .setDesc("One folder in the vault, or a folder of that name next to each article.")
+      .setName("Vault-wide or local apparatus")
+      .setDesc(
+        "Vault-wide keeps all history notes in one place. Local puts them in an apparatus folder in the same " +
+          "folder as the article, so a folder you move or share takes its history notes with it. In both cases " +
+          "the folder is named as chosen in “Apparatus folder” above.",
+      )
       .addDropdown((dd) => {
-        dd.addOption("vault", "One folder in the vault");
-        dd.addOption("article", "Next to each article");
+        dd.addOption("vault", "Vault-wide: one folder");
+        dd.addOption("article", "Local: in the articles' folder");
         dd.setValue(settings.historyLocation).onChange(async (value) => {
           this.plugin.settings.historyLocation = value as HistoryLocation;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl).setName("Citation").setHeading();
+
+    new Setting(containerEl)
+      .setName("How an answer points to its history note")
+      .setDesc(
+        "Footnote: the answer is followed by a reference such as [^lac-7], and a footnote at the end of the " +
+          "note reads “See Lacuna #7: the question”, linked to the history note. Inline link: a small “ad loc.” " +
+          "link right after the answer. Either way, the answered paragraph gets an invisible anchor (^adloc-1) " +
+          "that the history note links back to.",
+      )
+      .addDropdown((dd) => {
+        dd.addOption("footnote", "Footnote (default)");
+        dd.addOption("inline", "Inline link");
+        dd.setValue(settings.citationStyle).onChange(async (value) => {
+          this.plugin.settings.citationStyle = value as CitationStyle;
           await this.plugin.saveSettings();
         });
       });
@@ -214,6 +244,59 @@ export class LacunaSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
+  }
+
+  /**
+   * The Idiolect: one word of your own for each kind. Each is checked as you type, against every
+   * built-in language (checked or not) and your other words; a word that clashes is refused, with
+   * the reason under the field, and what stays stored is the last word that was fine.
+   */
+  private renderIdiolect(containerEl: HTMLElement): void {
+    new Setting(containerEl).setName("Idiolect: your own keywords").setHeading();
+    containerEl.createEl("p", {
+      cls: "setting-item-description",
+      text:
+        "A word of your own for each kind, if you want one. It must be a single word without ':', '=' or '?', and " +
+        "it cannot be a word that already means another kind in any language, checked or not. Leave a kind empty " +
+        "to have no word of your own for it.",
+    });
+    // A stored word can clash after an update that adds a language containing it.
+    for (const c of findIdiolectConflicts(this.plugin.settings.idiolect)) {
+      containerEl.createEl("p", {
+        cls: "lacuna-setting-error",
+        text: `Your word "${c.word}" for ${c.kind} now also means ${c.collision.kind} in ${c.collision.packName}, which wins. Pick another.`,
+      });
+    }
+
+    for (const kind of KINDS) {
+      const setting = new Setting(containerEl).setName(kind).setDesc(KIND_HINTS[kind]);
+      const message = setting.descEl.createDiv({ cls: "lacuna-setting-error" });
+      let refused = false;
+      setting.addText((t) => {
+        t.setPlaceholder("(none)")
+          .setValue(this.plugin.settings.idiolect[kind] ?? "")
+          .onChange(async (value) => {
+            const result = setIdiolectWord(this.plugin.settings, kind, value);
+            refused = result.error !== null;
+            message.setText(result.error ?? "");
+            t.inputEl.toggleClass("lacuna-invalid", refused);
+            if (refused) return;
+            this.plugin.settings = result.settings;
+            await this.plugin.saveSettings();
+          });
+        t.inputEl.addEventListener("blur", () => {
+          // Leaving a refused word in the field would show something that is not stored.
+          if (refused) {
+            t.setValue(this.plugin.settings.idiolect[kind] ?? "");
+            message.setText("");
+            t.inputEl.removeClass("lacuna-invalid");
+            refused = false;
+          }
+          // A rescan, once, instead of one per keystroke.
+          void this.plugin.applySettings();
+        });
+      });
+    }
   }
 }
 
