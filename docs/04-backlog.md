@@ -8,4 +8,3 @@
 - A per-kind model setting.
 - "Solve all".
 - Persist the marker index with file modification times, if the first vault scan feels slow on a very large vault.
-- Decide the citation label: `ai-source` or `ad loc.`.

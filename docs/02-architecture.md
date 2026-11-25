@@ -54,11 +54,11 @@ August 24, 1995
 - **Inline:** ` [<label>](link)` or `[[link|<label>]]`, following the vault's link setting.
 - The citation **always points only to the history note**. Links are built with `app.fileManager.generateMarkdownLink` so renaming or moving the history note keeps them valid.
 - After resolution the plugin reads only the history note's frontmatter, never its body.
-- Label still open: `ai-source` (upfront that an AI produced it) or `ad loc.` (fits the theme).
+- The label is `ad loc.` (`CITATION_LABEL` in `src/apply.ts`), whoever wrote the answer.
 
 ## Applying a replacement
 
-If the article is open in an editor, use `editor.replaceRange` so the change is undoable. Otherwise use `app.vault.process`. In both cases the marker's position is found again in the *current* text at accept time, because the user may have edited the article during the search.
+`acceptAnswer` (`src/accept.ts`) does it. If the article is open in an editor, the marker's replacement and the footnote definition go in **one `editor.transaction`**, so a single Ctrl+Z undoes both. Otherwise it uses `app.vault.process`. In both cases the marker's position is found again in the *current* text at accept time, because the user may have edited the article during the search; if it is gone, nothing is changed and an error is thrown. What changes in the text is worked out by the pure `planAccept` (`src/apply.ts`), which returns edits as data. Last, the history note's frontmatter is set to `lacuna: resolved`, with `answer` and `answered`.
 
 ## Parsing and indexing
 
@@ -104,10 +104,12 @@ The plugin never reads the vault from the resolver's side: the only thing that l
 
 ### "Answer myself"
 
-The offline resolver (`src/resolvers/manual.ts`): a dialog where the user types the answer, with an optional source link. Behind the same `Resolver` interface, so the result is the same pending history note (`resolver: manual`, one candidate) and the review step treats it like any other.
+The offline resolver (`src/resolvers/manual.ts`): a dialog where the user types the answer, with an optional source. It is behind the same `Resolver` interface and writes the same history note (`resolver: manual`, one candidate), but **the answer is applied at once**: it is the user's own text, so there is nothing to review. `answerMyself` in `main.ts` writes the note, calls `acceptAnswer`, and the note ends up `resolved`. If applying fails (the marker was deleted meanwhile), the note stays `pending` and a message says so; the answer is not lost.
 
 - It **does not go through the queue**, which runs one job at a time and must not be held up by a dialog.
-- **Nothing is sent anywhere**, so the note has no "Context sent" block.
+- **Nothing is sent anywhere**, so the note has no "Context sent" block, and the dialog can show more of the note than a search would get: the marker's paragraph and the ones before and after it (`splitContext`, pure). For `sic` the claim is underlined in it.
 - For `sic` the dialog asks whether the claim is right or wrong: a confirmed claim needs no text (only the citation is added), a wrong one needs the correction.
-- The source, if given, must be an `http(s)` link; the input is checked by `validateManualAnswer`, which is pure and tested.
+- **The source is free text or a link.** A link (`http`/`https`) is written in the note as `- [host](url)`; anything else (a book, "from memory") as a plain line `- text`. `Source.url` is therefore optional.
+- **An answer cannot contain a heading** (a line starting with `#`, up to 3 spaces of indent): the review step finds candidates by their headings. `validateManualAnswer` refuses it with a message. It is pure and tested.
+- **A draft survives an accidental close.** What was typed is kept in memory per marker (`manualDrafts` in `main.ts`) when the dialog is closed by Esc or a click outside, and comes back when it is reopened. Save and the Cancel button discard it.
 - It is offered next to Solve, after a failure (for instance when offline), and after a rejection. It works without a question for every kind.

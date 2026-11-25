@@ -102,6 +102,15 @@ describe("buildHistoryNote", () => {
     expect(note.endsWith("July 14, 1995\n")).toBe(true);
   });
 
+  it("writes a source without a link as plain text", () => {
+    const n = buildHistoryNote(
+      input({
+        candidates: [{ answer: "a", sources: [{ title: "Petzold,  *Code*,\np. 212" }, { title: "from memory" }] }],
+      }),
+    );
+    expect(n).toContain("## Candidate 1\na\n\n- Petzold, *Code*, p. 212\n- from memory\n");
+  });
+
   it("makes titles and urls safe inside a Markdown link", () => {
     const n = buildHistoryNote(
       input({ candidates: [{ answer: "a", sources: [{ title: "A [b] c", url: "https://e.com/x (y z)" }] }] }),

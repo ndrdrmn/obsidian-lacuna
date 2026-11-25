@@ -79,6 +79,13 @@ describe("normalizeSettings", () => {
     });
   });
 
+  it("defaults the citation to a footnote, keeps inline, and rejects anything else", () => {
+    expect(normalizeSettings({}).citationStyle).toBe("footnote");
+    expect(normalizeSettings({ citationStyle: "inline" }).citationStyle).toBe("inline");
+    expect(normalizeSettings({ citationStyle: "endnote" }).citationStyle).toBe("footnote");
+    expect(normalizeSettings({ citationStyle: 1 }).citationStyle).toBe("footnote");
+  });
+
   it("keeps valid resolver settings and rejects invalid ones", () => {
     const ok = normalizeSettings({
       historyLocation: "article",

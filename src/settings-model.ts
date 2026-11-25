@@ -1,3 +1,4 @@
+import type { CitationStyle } from "./apply";
 import type { ContextMode } from "./context";
 import { isValidAliasFormat, type Idiolect } from "./lang/keywords";
 import { ALL_PACK_IDS, KINDS, LATIN_ID, type Kind } from "./lang/packs";
@@ -8,6 +9,7 @@ export type HistoryLocation = "vault" | "article";
 
 export const CONTEXT_MODES: readonly ContextMode[] = ["sentence", "paragraph", "paragraphPlusMinusOne", "note"];
 export const HISTORY_LOCATIONS: readonly HistoryLocation[] = ["vault", "article"];
+export const CITATION_STYLES: readonly CitationStyle[] = ["footnote", "inline"];
 
 export interface LacunaSettings {
   /** Ids of the packs whose keywords are recognised. Never empty. */
@@ -24,6 +26,8 @@ export interface LacunaSettings {
   historyLocation: HistoryLocation;
   /** How much of the note is sent to the search, besides its title. */
   contextMode: ContextMode;
+  /** How an accepted answer points to its history note. */
+  citationStyle: CitationStyle;
   /** `claude`, or the full path to `claude.exe`. */
   claudePath: string;
   model: string;
@@ -39,6 +43,7 @@ export const DEFAULT_SETTINGS: LacunaSettings = {
   historyFolder: "Apparatus",
   historyLocation: "vault",
   contextMode: "paragraph",
+  citationStyle: "footnote",
   claudePath: "claude",
   model: "sonnet",
   timeoutSec: 180,
@@ -92,6 +97,9 @@ export function normalizeSettings(raw: unknown): LacunaSettings {
   const contextMode = (CONTEXT_MODES as readonly unknown[]).includes(r.contextMode)
     ? (r.contextMode as ContextMode)
     : DEFAULT_SETTINGS.contextMode;
+  const citationStyle = (CITATION_STYLES as readonly unknown[]).includes(r.citationStyle)
+    ? (r.citationStyle as CitationStyle)
+    : DEFAULT_SETTINGS.citationStyle;
 
   const claudePath =
     typeof r.claudePath === "string" && r.claudePath.trim() !== "" && !/[\r\n]/.test(r.claudePath)
@@ -108,6 +116,7 @@ export function normalizeSettings(raw: unknown): LacunaSettings {
     historyFolder,
     historyLocation,
     contextMode,
+    citationStyle,
     claudePath,
     model,
     timeoutSec: clampInt(r.timeoutSec, 10, 900, DEFAULT_SETTINGS.timeoutSec),

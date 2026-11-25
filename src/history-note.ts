@@ -78,6 +78,8 @@ function quoteBlock(text: string): string {
 }
 
 function sourceLine(s: Source): string {
+  // A source without a link is a reference the user wrote down: keep it as plain text.
+  if (!s.url) return `- ${s.title.replace(/\s+/g, " ").trim()}`;
   const title = s.title.replace(/\[/g, "(").replace(/\]/g, ")").replace(/\s+/g, " ");
   const url = s.url.replace(/ /g, "%20").replace(/\(/g, "%28").replace(/\)/g, "%29");
   const quote = s.quote ? ` — “${s.quote.replace(/\s+/g, " ")}”` : "";

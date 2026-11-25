@@ -1,8 +1,10 @@
 import type { Kind } from "../lang/packs";
 
 export interface Source {
+  /** What to show: a page title, or, for a source without a link, the reference itself. */
   title: string;
-  url: string;
+  /** Absent when the source is a book or "from memory", something the user typed. */
+  url?: string;
   /** A short verbatim quote from the page, when the resolver has one. */
   quote?: string;
 }

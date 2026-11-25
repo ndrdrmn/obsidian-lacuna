@@ -78,7 +78,8 @@
   overflow-wrap: anywhere;
 }
 
-.lacuna-view .lacuna-kind {
+.lacuna-view .lacuna-kind,
+.lacuna-answer-modal .lacuna-kind {
   flex: none;
   padding: 0 var(--size-4-1);
   border-radius: var(--radius-s);
@@ -98,27 +99,115 @@
 }
 
 /* The "Answer myself" dialog */
-.lacuna-modal-what {
-  margin-bottom: var(--size-4-2);
+.modal.lacuna-answer-modal {
+  width: min(720px, 92vw);
+  max-width: none;
 }
 
-.lacuna-modal-claim {
-  margin-bottom: var(--size-4-2);
+.lacuna-answer-modal .modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-3);
+}
+
+.lacuna-modal-what {
+  font-weight: var(--font-semibold);
+}
+
+/* The note around the marker: its own paragraph in the normal colour, its neighbours muted. */
+.lacuna-modal-context {
+  max-height: 14em;
+  overflow-y: auto;
+  padding: var(--size-4-2) var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  background: var(--background-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--font-ui-small);
+}
+
+.lacuna-ctx-muted {
+  color: var(--text-faint);
+}
+
+.lacuna-ctx-marker {
+  padding: 0 2px;
+  border-radius: var(--radius-s);
+  background: var(--text-highlight-bg);
+  color: var(--text-normal);
+}
+
+.lacuna-ctx-claim {
+  text-decoration: underline;
+  text-decoration-color: var(--text-accent);
+  text-underline-offset: 3px;
+}
+
+.lacuna-modal-verdict {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-3);
+}
+
+.lacuna-segmented {
+  display: inline-flex;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+  overflow: hidden;
+}
+
+.lacuna-segmented button {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+
+.lacuna-segmented button.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.lacuna-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+}
+
+.lacuna-field-label {
+  font-size: var(--font-ui-small);
   color: var(--text-muted);
-  font-style: italic;
+}
+
+.lacuna-field-hint {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
 }
 
 .lacuna-modal-answer,
 .lacuna-modal-source {
   width: 100%;
-  margin-bottom: var(--size-4-2);
 }
 
 .lacuna-modal-answer {
   resize: vertical;
+  font-family: var(--font-text);
 }
 
-.modal-content .lacuna-error {
+.lacuna-answer-modal .lacuna-error {
+  min-height: 1.2em;
   color: var(--text-error);
   font-size: var(--font-ui-smaller);
+}
+
+.lacuna-modal-footer {
+  align-items: center;
+  margin-top: 0;
+}
+
+.lacuna-modal-shortcut {
+  margin-right: auto;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
 }

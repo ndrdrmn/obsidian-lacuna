@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   appendFootnoteDefinition,
+  applyEdits,
   buildCitation,
   buildReplacement,
   isBlockMarker,
   newFootnoteId,
+  planAccept,
   replaceMarker,
 } from "../src/apply";
 
@@ -145,5 +147,71 @@ describe("appendFootnoteDefinition", () => {
   it("handles a note without a trailing newline, and an empty note", () => {
     expect(appendFootnoteDefinition("Text", "[^a]: l")).toBe("Text\n\n[^a]: l\n");
     expect(appendFootnoteDefinition("", "[^a]: l")).toBe("[^a]: l\n");
+  });
+});
+
+describe("planAccept", () => {
+  const link = "[[Apparatus/n|ad loc.]]";
+  const spanOf = (text: string) => {
+    const start = text.indexOf("==?");
+    return { start, end: text.indexOf("==", start + 3) + 2 };
+  };
+  const accept = (text: string, over: Partial<Parameters<typeof planAccept>[2]> = {}) =>
+    applyEdits(
+      text,
+      planAccept(text, spanOf(text), { kind: "suppl", answer: "1995", style: "footnote", link, footnoteId: "lac-abcd", ...over }),
+    );
+
+  it("replaces the marker and adds the footnote at the end", () => {
+    expect(accept("Released in ==?suppl: year== by MS.\n")).toBe(
+      "Released in 1995[^lac-abcd] by MS.\n\n[^lac-abcd]: [[Apparatus/n|ad loc.]]\n",
+    );
+  });
+
+  it("stacks the footnote under existing ones", () => {
+    expect(accept("A ==?suppl: x==[^1].\n\n[^1]: old\n")).toBe(
+      "A 1995[^lac-abcd][^1].\n\n[^1]: old\n[^lac-abcd]: [[Apparatus/n|ad loc.]]\n",
+    );
+  });
+
+  it("inline style changes only the marker", () => {
+    expect(accept("Released in ==?suppl: year== by MS.\n", { style: "inline", footnoteId: undefined })).toBe(
+      "Released in 1995 [[Apparatus/n|ad loc.]] by MS.\n",
+    );
+  });
+
+  it("works when the marker is the last thing in the note", () => {
+    expect(accept("Released ==?suppl: year==")).toBe("Released 1995[^lac-abcd]\n\n[^lac-abcd]: [[Apparatus/n|ad loc.]]\n");
+  });
+
+  it("sic: a confirmed claim leaves only the citation, a wrong one a correction", () => {
+    expect(accept("It was 1995 ==?sic:==.\n", { kind: "sic", verdict: "confirmed" })).toBe(
+      "It was 1995 [^lac-abcd].\n\n[^lac-abcd]: [[Apparatus/n|ad loc.]]\n",
+    );
+    expect(accept("It was 1996 ==?sic:==.\n", { kind: "sic", verdict: "corrected", answer: "1995" })).toBe(
+      "It was 1996 (actually: 1995[^lac-abcd]).\n\n[^lac-abcd]: [[Apparatus/n|ad loc.]]\n",
+    );
+  });
+
+  it("a block marker keeps a multi-line answer", () => {
+    expect(accept("Before.\n\n==?glossa: what==\n\nAfter.\n", { kind: "glossa", answer: "Line one.\nLine two." })).toBe(
+      "Before.\n\nLine one.\nLine two.[^lac-abcd]\n\nAfter.\n\n[^lac-abcd]: [[Apparatus/n|ad loc.]]\n",
+    );
+  });
+
+  it("an inline marker joins the lines of the answer", () => {
+    expect(accept("See ==?suppl: x== now.\n", { answer: "one\ntwo", style: "inline", footnoteId: undefined })).toBe(
+      "See one two [[Apparatus/n|ad loc.]] now.\n",
+    );
+  });
+
+  it("a table answer puts the citation under the table", () => {
+    expect(accept("==?cf: compare==\n", { kind: "cf", answer: "| a | b |\n|---|---|\n| 1 | 2 |" })).toBe(
+      "| a | b |\n|---|---|\n| 1 | 2 |\n\n[^lac-abcd]\n\n[^lac-abcd]: [[Apparatus/n|ad loc.]]\n",
+    );
+  });
+
+  it("needs an id for a footnote", () => {
+    expect(() => accept("A ==?suppl: x==\n", { footnoteId: undefined })).toThrow();
   });
 });

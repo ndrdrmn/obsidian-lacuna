@@ -70,13 +70,31 @@ export function buildReplacement(input: ReplacementInput): string {
   return `${answer}${cite}`;
 }
 
-/** Replace `[start, end)` of `text`. A citation's leading space is dropped when it would double one. */
-export function replaceMarker(text: string, span: Span, replacement: string): string {
+/** Replace `[from, to)` of a text by `insert`. Offsets refer to the text before any edit. */
+export interface Edit {
+  from: number;
+  to: number;
+  insert: string;
+}
+
+export function applyEdits(text: string, edits: readonly Edit[]): string {
+  // From the end, so that an edit does not move the ones before it.
+  return [...edits]
+    .sort((a, b) => b.from - a.from)
+    .reduce((t, e) => t.slice(0, e.from) + e.insert + t.slice(e.to), text);
+}
+
+/** The edit that replaces `[start, end)`. A citation's leading space is dropped when it would double one. */
+function markerEdit(text: string, span: Span, replacement: string): Edit {
   let rep = replacement;
   if (rep.startsWith(" ") && (span.start === 0 || /\s/.test(text[span.start - 1]))) {
     rep = rep.replace(/^ +/, "");
   }
-  return text.slice(0, span.start) + rep + text.slice(span.end);
+  return { from: span.start, to: span.end, insert: rep };
+}
+
+export function replaceMarker(text: string, span: Span, replacement: string): string {
+  return applyEdits(text, [markerEdit(text, span, replacement)]);
 }
 
 /** Is the marker alone on its line (so that a block answer is allowed)? */
@@ -87,11 +105,51 @@ export function isBlockMarker(text: string, span: Span): boolean {
   return text.slice(lineStart, span.start).trim() === "" && text.slice(span.end, lineEnd).trim() === "";
 }
 
-/** Add a footnote definition at the end of the note, next to the existing ones if any. */
-export function appendFootnoteDefinition(noteText: string, definition: string): string {
+/** The edit that adds a footnote definition at the end of the note, next to the existing ones if any. */
+function footnoteEdit(noteText: string, definition: string): Edit {
   const body = noteText.replace(/\s+$/, "");
-  if (body === "") return `${definition}\n`;
+  if (body === "") return { from: 0, to: noteText.length, insert: `${definition}\n` };
   const lastLine = body.slice(body.lastIndexOf("\n") + 1);
   const sep = /^\[\^[^\]]+\]:/.test(lastLine) ? "\n" : "\n\n";
-  return `${body}${sep}${definition}\n`;
+  return { from: body.length, to: noteText.length, insert: `${sep}${definition}\n` };
+}
+
+export function appendFootnoteDefinition(noteText: string, definition: string): string {
+  return applyEdits(noteText, [footnoteEdit(noteText, definition)]);
+}
+
+/** The text of the link to a history note: what the reader sees where the marker was. */
+export const CITATION_LABEL = "ad loc.";
+
+export interface AcceptInput {
+  kind: Kind;
+  /** The chosen or edited answer. */
+  answer: string;
+  /** Required for `sic`. */
+  verdict?: "confirmed" | "corrected";
+  style: CitationStyle;
+  /** The link to the history note, built with `generateMarkdownLink` and `CITATION_LABEL`. */
+  link: string;
+  /** Footnote style only: see `newFootnoteId`. */
+  footnoteId?: string;
+}
+
+/**
+ * Everything an accepted answer changes in the article, as edits to apply together:
+ * the marker becomes the answer and its citation, and a footnote definition is added
+ * at the end of the note when the style asks for one. Applying them in one go makes
+ * one undo step in the editor.
+ */
+export function planAccept(text: string, span: Span, input: AcceptInput): Edit[] {
+  const cite = buildCitation(input.style, input.link, input.footnoteId);
+  const replacement = buildReplacement({
+    kind: input.kind,
+    answer: input.answer,
+    cite: cite.inline,
+    block: isBlockMarker(text, span),
+    verdict: input.verdict,
+  });
+  const edits = [markerEdit(text, span, replacement)];
+  if (cite.definition) edits.push(footnoteEdit(text, cite.definition));
+  return edits;
 }

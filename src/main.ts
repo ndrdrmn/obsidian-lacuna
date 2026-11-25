@@ -1,4 +1,5 @@
 import { MarkdownView, Notice, Plugin, TFile, debounce, type Editor } from "obsidian";
+import { acceptAnswer } from "./accept";
 import { extractClaim, extractContext, type ContextResult } from "./context";
 import { isBlockMarker } from "./apply";
 import { KeywordModal, MarkerSuggest } from "./editor/suggest";
@@ -11,7 +12,8 @@ import { isHistoryPath } from "./paths";
 import { buildPrompt } from "./prompt";
 import { JobQueue, type Job } from "./queue";
 import { ClaudeCliResolver } from "./resolvers/claudeCli";
-import { ManualResolver } from "./resolvers/manual";
+import { ManualResolver, type ManualDraft } from "./resolvers/manual";
+import { splitContext } from "./resolvers/manual-answer";
 import { CancelledError, type Resolver, type SolveResult } from "./resolvers/resolver";
 import { MarkerIndex } from "./scanner";
 import { LacunaSettingTab } from "./settings";
@@ -33,6 +35,8 @@ export interface SolvePayload {
 /** A marker as it is in the note right now, with what a resolver needs to know about it. */
 interface Prepared {
   file: TFile;
+  /** The note's text as it is now. */
+  text: string;
   marker: Marker;
   context: ContextResult;
   claim?: string;
@@ -46,9 +50,11 @@ export default class LacunaPlugin extends Plugin {
   /** Result of a job: the path of the pending history note. */
   queue!: JobQueue<SolvePayload, string>;
   private resolver!: Resolver;
-  private manual!: Resolver;
+  private manual!: ManualResolver;
   /** Markers whose "Answer myself" dialog is open, so that a double click does not open two. */
   private readonly manualOpen = new Set<string>();
+  /** What was typed in a dialog that was closed without saving, until Obsidian restarts. */
+  private readonly manualDrafts = new Map<string, ManualDraft>();
   private aliasMap: Map<string, AliasEntry> | null = null;
 
   async onload(): Promise<void> {
@@ -200,6 +206,7 @@ export default class LacunaPlugin extends Plugin {
 
     return {
       file,
+      text,
       marker: current,
       context: extractContext(text, current, this.settings.contextMode),
       claim: current.kind === "sic" ? extractClaim(text, current) : undefined,
@@ -208,8 +215,8 @@ export default class LacunaPlugin extends Plugin {
   }
 
   /** Write the pending history note. `sent` is false when nothing left the machine. */
-  private async record(p: Prepared, result: SolveResult, sent: boolean): Promise<string> {
-    const note = await this.history.create(p.file, {
+  private async record(p: Prepared, result: SolveResult, sent: boolean): Promise<TFile> {
+    return this.history.create(p.file, {
       kind: p.marker.kind,
       alias: p.marker.alias,
       title: p.marker.question || p.claim || p.marker.kind,
@@ -221,7 +228,6 @@ export default class LacunaPlugin extends Plugin {
       context: sent ? p.context.text : "",
       candidates: result.candidates,
     });
-    return note.path;
   }
 
   /** One job of the queue: build the prompt, ask Claude, write the pending history note. */
@@ -244,13 +250,14 @@ export default class LacunaPlugin extends Plugin {
       signal,
     );
     if (signal.aborted) throw new Error("Cancelled");
-    return this.record(p, result, true);
+    return (await this.record(p, result, true)).path;
   }
 
   /**
    * "Answer myself": the user types the answer. It does not go through the queue, which
    * runs one job at a time and must not be held up by a dialog; and nothing is sent anywhere.
-   * The result is the same pending history note as Claude's.
+   * It leaves the same history note as Claude's, and applies the answer at once: there is
+   * nothing to review in what you wrote yourself.
    */
   async answerMyself(path: string, marker: Marker): Promise<void> {
     const key = jobKey(path, marker.raw);
@@ -258,12 +265,42 @@ export default class LacunaPlugin extends Plugin {
     this.manualOpen.add(key);
     try {
       const p = await this.prepare(path, marker);
+      // Nothing is sent anywhere, so the dialog can show more of the note than the search would get.
+      const around = extractContext(p.text, p.marker, "paragraphPlusMinusOne");
       const result = await this.manual.solve(
-        { kind: p.marker.kind, prompt: "", question: p.marker.question, claim: p.claim, inline: p.inline },
+        {
+          kind: p.marker.kind,
+          prompt: "",
+          question: p.marker.question,
+          claim: p.claim,
+          inline: p.inline,
+          context: splitContext(around, p.claim),
+          draft: this.manualDrafts.get(key),
+          onDraft: (d) => (d ? this.manualDrafts.set(key, d) : this.manualDrafts.delete(key)),
+        },
         new AbortController().signal,
       );
-      await this.record(p, result, false);
-      new Notice(`Lacuna: answer saved for “${p.marker.question || p.marker.kind}”.`);
+      const note = await this.record(p, result, false);
+      const what = p.marker.question || p.marker.kind;
+      try {
+        await acceptAnswer(
+          { app: this.app, parseOptions: this.parseOptions(), citationStyle: this.settings.citationStyle },
+          {
+            article: p.file,
+            historyNote: note,
+            kind: p.marker.kind,
+            markerRaw: p.marker.raw,
+            markerStart: p.marker.start,
+            answer: result.candidates[0].answer,
+            verdict: result.verdict === "uncertain" ? undefined : result.verdict,
+          },
+        );
+        new Notice(`Lacuna: answer applied for “${what}”.`);
+      } catch (e) {
+        // The answer is not lost: it waits in the history note.
+        const why = e instanceof Error ? e.message : String(e);
+        new Notice(`Lacuna: your answer for “${what}” was saved in its history note, but not applied. ${why}`, 10_000);
+      }
     } catch (e) {
       if (!(e instanceof CancelledError)) new Notice(`Lacuna: ${e instanceof Error ? e.message : String(e)}`, 10_000);
     } finally {
