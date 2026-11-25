@@ -113,6 +113,9 @@ export function buildHistoryNote(i: HistoryNoteInput): string {
     ...(i.alias ? [`alias: ${yaml(formatAlias(i.alias))}`] : []),
     `question: ${yaml(i.question)}`,
     `article: ${yaml(i.articleLink)}`,
+    // Empty until the answer is accepted. Written now so that it sits next to `article` (what article,
+    // what anchor), where the update finds it and fills it in without moving it.
+    "at:",
     `marker: ${yaml(normalizeMarker(i.marker))}`,
     `asked: ${formatLocalDateTime(i.asked)}`,
     `resolver: ${i.resolver}`,

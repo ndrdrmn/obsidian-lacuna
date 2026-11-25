@@ -80,10 +80,10 @@ kind: suppl              # always the Latin canonical name
 alias: integra (it)      # only if a non-Latin keyword was typed
 question: exact release date
 article: "[[windows-95]]"      # Obsidian updates this on rename
+at:                      # set on accept, next to `article`: link to the answered passage
 marker: "==?integra: exact release date=="
 asked: 2026-11-18T16:40
 resolver: claude-cli/sonnet
-at:                      # set on accept: link to the answered passage
 answer:                  # set on accept
 answered:
 ---

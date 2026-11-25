@@ -22,11 +22,11 @@ kind: suppl              # always the Latin canonical name
 alias: "integra (it)"    # only if a non-Latin keyword was typed
 question: "exact release date"
 article: "[[windows-95]]"      # Obsidian updates this on rename
+at:                      # set on accept, next to `article`: link to the answered passage, "[[windows-95#^lac-122]]"
 marker: "==?integra: exact release date=="   # JSON-quoted: a multi-line marker has \n escapes
 asked: 2026-11-18T16:40
 resolver: claude-cli/sonnet
 verdict: confirmed       # sic only: confirmed | corrected | uncertain
-at:                      # set on accept: link to the answered passage, "[[windows-95#^lac-122]]"
 answer:                  # set on accept
 answered:
 ---
@@ -65,7 +65,7 @@ August 24, 1995
 
 ## Applying a replacement
 
-`acceptAnswer` (`src/accept.ts`) does it. If the article is open in an editor, the marker's replacement and the footnote definition go in **one `editor.transaction`**, so a single Ctrl+Z undoes both. Otherwise it uses `app.vault.process`. In both cases the marker's position is found again in the *current* text at accept time, because the user may have edited the article during the search; if it is gone, nothing is changed and an error is thrown. What changes in the text is worked out by the pure `planAccept` (`src/apply.ts`), which returns edits as data. Last, the history note's frontmatter is set to `lacuna: resolved`, with `answer` and `answered`.
+`acceptAnswer` (`src/accept.ts`) does it. If the article is open in an editor, the marker's replacement and the footnote definition go in **one `editor.transaction`**, so a single Ctrl+Z undoes both; the view is then saved at once and the file is read back to check that the answer is really in it. Otherwise it uses `app.vault.process`: a note that is closed, one in Reading mode (it has no live editor), and one whose editor ignored the change. A change that is only half there is an error, and the history note stays `pending`: it never says `resolved` about an answer that is not in the note. In both cases the marker's position is found again in the *current* text at accept time, because the user may have edited the article during the search; if it is gone, nothing is changed and an error is thrown. What changes in the text is worked out by the pure `planAccept` (`src/apply.ts`), which returns edits as data. Last, the history note's frontmatter is set to `lacuna: resolved`, with `answer` and `answered`.
 
 ## Parsing and indexing
 

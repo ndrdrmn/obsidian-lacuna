@@ -36,13 +36,57 @@ export interface AcceptEnv {
   citationStyle: CitationStyle;
 }
 
-/** The editor of the article, if it is open in a tab that has been loaded. */
-function openEditor(app: App, file: TFile): Editor | null {
+/**
+ * The article's view, if it is open in a tab that has been loaded and shows the editor
+ * (Live Preview or Source). A note in Reading mode has no live editor to write through.
+ */
+function openEditorView(app: App, file: TFile): MarkdownView | null {
   for (const leaf of app.workspace.getLeavesOfType("markdown")) {
-    if (leaf.view instanceof MarkdownView && leaf.view.file?.path === file.path) return leaf.view.editor;
+    const view = leaf.view;
+    if (view instanceof MarkdownView && view.file?.path === file.path && view.getMode() === "source") return view;
   }
   return null;
 }
+
+const unix = (s: string): string => s.replace(/\r\n/g, "\n");
+
+/**
+ * Apply the answer through the editor, so that Ctrl+Z undoes it, and make sure it reached the file.
+ * Returns null when the editor ignored the change (it is left as it was): the caller then writes the file.
+ * Throws when the change is half there, which must not pass for success.
+ */
+async function applyThroughEditor(
+  env: AcceptEnv,
+  req: AcceptRequest,
+  view: MarkdownView,
+): Promise<{ anchor: string | null } | null> {
+  const editor: Editor = view.editor;
+  const before = editor.getValue();
+  const plan = planFor(env, req, before);
+  if (!plan) throw new Error(MARKER_GONE);
+  const expected = applyEdits(before, plan.edits);
+
+  // From the end of the note, so that the positions stay right whichever way the editor applies them.
+  const changes = [...plan.edits]
+    .sort((a, b) => b.from - a.from)
+    .map((e) => ({ from: editor.offsetToPos(e.from), to: editor.offsetToPos(e.to), text: e.insert }));
+  editor.transaction({ changes });
+
+  const now = editor.getValue();
+  if (now === before) return null;
+  if (now !== expected) throw new Error("The editor changed the note in an unexpected way, so the answer was not applied. Check the note.");
+
+  // Write it now rather than in two seconds, and look at the file: the history note must not say
+  // "resolved" about an answer that is not in the note.
+  await view.save();
+  const onDisk = await env.app.vault.read(req.article);
+  if (unix(onDisk) !== expected) {
+    throw new Error("The answer is in the editor but the note was not saved. Save it, or undo the change.");
+  }
+  return { anchor: plan.anchor };
+}
+
+const MARKER_GONE = "The marker is no longer in the note, so the answer was not applied.";
 
 /** What accepting the answer changes in `text`, or null when the marker is no longer there. */
 function planFor(env: AcceptEnv, req: AcceptRequest, text: string): AcceptPlan | null {
@@ -69,25 +113,19 @@ function planFor(env: AcceptEnv, req: AcceptRequest, text: string): AcceptPlan |
  * and an invisible anchor the history note links back to; then mark the history note
  * `resolved`. Throws, changing nothing, when the marker is gone.
  *
- * An open note is changed through its editor, in a single transaction, so that Ctrl+Z undoes it.
- * A closed one is changed on disk.
+ * A note open in the editor is changed through it, in a single transaction, so that Ctrl+Z undoes
+ * it, and the file is checked afterwards. Any other note (closed, or in Reading mode) is changed
+ * on disk; so is one whose editor did not take the change.
  */
 export async function acceptAnswer(env: AcceptEnv, req: AcceptRequest): Promise<void> {
-  const gone = new Error("The marker is no longer in the note, so the answer was not applied.");
   const { app } = env;
   // Assigned inside callbacks as well, which the compiler does not follow: say what it can be.
   let anchor = null as string | null;
 
-  const editor = openEditor(app, req.article);
-  if (editor) {
-    const plan = planFor(env, req, editor.getValue());
-    if (!plan) throw gone;
-    anchor = plan.anchor;
-    // From the end of the note, so that the positions stay right whichever way the editor applies them.
-    const changes = [...plan.edits]
-      .sort((a, b) => b.from - a.from)
-      .map((e) => ({ from: editor.offsetToPos(e.from), to: editor.offsetToPos(e.to), text: e.insert }));
-    editor.transaction({ changes });
+  const view = openEditorView(app, req.article);
+  const viaEditor = view ? await applyThroughEditor(env, req, view) : null;
+  if (viaEditor) {
+    anchor = viaEditor.anchor;
   } else {
     let applied = false;
     await app.vault.process(req.article, (data) => {
@@ -97,7 +135,7 @@ export async function acceptAnswer(env: AcceptEnv, req: AcceptRequest): Promise<
       anchor = plan.anchor;
       return applyEdits(data, plan.edits);
     });
-    if (!applied) throw gone;
+    if (!applied) throw new Error(MARKER_GONE);
   }
 
   // Where the answer is: the block's anchor, or just the article when the block cannot take one (a heading).

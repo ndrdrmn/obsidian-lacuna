@@ -60,6 +60,12 @@ describe("buildHistoryNote", () => {
     expect(note).toContain("\nanswer:\nanswered:\n---\n");
   });
 
+  it("has an empty `at` right after `article`, for the answer's anchor", () => {
+    const keys = note.split("\n---\n")[0].split("\n").slice(1).map((l) => l.split(":")[0]);
+    expect(keys.indexOf("at")).toBe(keys.indexOf("article") + 1);
+    expect(front(note, "at")).toBe("");
+  });
+
   it("leaves out alias and verdict when there are none", () => {
     expect(note).not.toContain("alias:");
     expect(note).not.toContain("verdict:");
