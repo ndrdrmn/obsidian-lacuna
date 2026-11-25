@@ -15,7 +15,7 @@ A *lacuna* is a gap in a manuscript that an editor later fills. Every answer is 
 
 ## Requirements
 
-- Obsidian **desktop** 1.5.7 or later (the plugin starts the `claude` program, so it is desktop only).
+- Obsidian **desktop** 1.6.6 or later (the plugin starts the `claude` program, so it is desktop only).
 - The [Claude Code](https://claude.com/claude-code) command line, installed and logged in with your own account. Lacuna runs it with your login, so it uses your Claude subscription: a search uses some of your plan's allowance. **Answer myself** needs none of this and works offline.
 - For the `/adloc` command: the **Slash commands** core plugin switched on (Settings → Core plugins). The other ways to insert a marker do not need it.
 
@@ -59,6 +59,8 @@ Open the **Lacuna** sidebar (the highlighter icon in the ribbon). It lists the l
 - When the answers are in, **Review** opens a dialog with the paragraph around the marker and each candidate with its sources. **Accept** puts a candidate in your text. **Edit** lets you change it first. **Reject** leaves the marker as it is. **Search again** rejects these and asks again, telling Claude not to repeat them. Closing the dialog changes nothing.
 
 Clicking the question in the sidebar jumps to the marker.
+
+If you delete a marker, or change its text, after Claude has answered it, its history note is left with no marker to answer. The sidebar lists it under **Orphans**, with **Open note** and **Discard…**. Discard asks first, and only if you agree moves the note to the trash (where Obsidian's “Deleted files” setting sends deleted notes). Notes you have already accepted are never orphans.
 
 ### What you get in the text
 

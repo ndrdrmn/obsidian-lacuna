@@ -1,6 +1,8 @@
 import { ItemView, debounce, type ViewStateResult, type WorkspaceLeaf } from "obsidian";
+import type { HistoryEntry } from "../history-note";
 import { KIND_HINTS } from "../lang/packs";
 import type { Marker } from "../marker";
+import { findOrphans } from "../orphans";
 import type LacunaPlugin from "../main";
 import type { ItemState } from "../status";
 
@@ -53,6 +55,7 @@ export class SidebarView extends ItemView {
     this.register(this.plugin.queue.onChange(() => this.requestRender()));
     // A history note that has just been written shows up in the metadata cache a moment later.
     this.registerEvent(this.app.metadataCache.on("changed", () => this.requestRender()));
+    this.registerEvent(this.app.vault.on("delete", () => this.requestRender()));
     this.registerEvent(this.app.workspace.on("file-open", () => this.requestRender()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.requestRender()));
     await this.render();
@@ -74,6 +77,8 @@ export class SidebarView extends ItemView {
     // Gather first, draw after: the DOM is only touched once the data is there.
     let groups: [string, readonly Marker[]][] = [];
     let message: string | null = null;
+    let history: HistoryEntry[] = [];
+    let orphans: HistoryEntry[] = [];
 
     if (this.listScope === "vault") {
       if (!index.isBuilt()) {
@@ -82,6 +87,9 @@ export class SidebarView extends ItemView {
       }
       groups = index.all();
       if (groups.length === 0) message = "No lacuna in the vault.";
+      // One look at the history notes for the whole list, not one per marker.
+      history = this.plugin.history.list();
+      orphans = findOrphans(history, (path) => index.get(path));
     } else {
       const file = this.app.workspace.getActiveFile();
       if (!file || file.extension !== "md") {
@@ -92,6 +100,8 @@ export class SidebarView extends ItemView {
         const markers = index.get(file.path);
         if (markers.length > 0) groups = [[file.path, markers]];
         else message = "No lacuna in this note. Run /adloc to add one.";
+        history = this.plugin.history.list();
+        orphans = findOrphans(history, (path) => (index.has(path) ? index.get(path) : undefined), file.path);
       }
     }
     if (id !== this.renderId) return;
@@ -106,21 +116,50 @@ export class SidebarView extends ItemView {
       button.addEventListener("click", () => this.setScope(scope));
     }
     const count = groups.reduce((n, [, ms]) => n + ms.length, 0);
-    bar.createSpan({ cls: "lacuna-count", text: count === 1 ? "1 lacuna" : `${count} lacunae` });
+    const orphanCount = orphans.length === 0 ? "" : orphans.length === 1 ? " · 1 orphan" : ` · ${orphans.length} orphans`;
+    bar.createSpan({ cls: "lacuna-count", text: (count === 1 ? "1 lacuna" : `${count} lacunae`) + orphanCount });
 
-    if (message !== null) {
-      contentEl.createDiv({ cls: "lacuna-message", text: message });
-      return;
-    }
-    // One look at the history notes for the whole list, not one per marker.
-    const history = this.plugin.history.list();
-    for (const [path, markers] of groups) {
+    if (message !== null) contentEl.createDiv({ cls: "lacuna-message", text: message });
+    for (const [path, markers] of message === null ? groups : []) {
       if (this.listScope === "vault") {
         const heading = contentEl.createDiv({ cls: "lacuna-note", attr: { title: path } });
         heading.createSpan({ text: path.replace(/\.md$/, "").split("/").pop() ?? path });
         heading.createSpan({ cls: "lacuna-count", text: String(markers.length) });
       }
       for (const marker of markers) this.renderItem(contentEl, path, marker, this.plugin.stateOf(path, marker, history));
+    }
+    if (orphans.length > 0) this.renderOrphans(contentEl, orphans);
+  }
+
+  /** The history notes whose marker is not in the article any more, with what can be done about them. */
+  private renderOrphans(parent: HTMLElement, orphans: readonly HistoryEntry[]): void {
+    const heading = parent.createDiv({
+      cls: "lacuna-note",
+      attr: { title: "History notes that are still waiting or were rejected, whose marker is not in the article any more" },
+    });
+    heading.createSpan({ text: "Orphans" });
+    heading.createSpan({ cls: "lacuna-count", text: String(orphans.length) });
+
+    for (const entry of orphans) {
+      const item = parent.createDiv({ cls: "lacuna-item lacuna-orphan" });
+      const line = item.createDiv({ cls: "lacuna-line" });
+      if (entry.kind) line.createSpan({ cls: "lacuna-kind", text: entry.kind, attr: { title: KIND_HINTS[entry.kind] } });
+      const asked = entry.question && entry.question !== "" ? entry.question : "(no question)";
+      line.createSpan({ cls: "lacuna-question", text: asked });
+
+      // Which article, in the vault list: there the orphans are not under their article's heading.
+      const article = entry.articlePath
+        ? (entry.articlePath.replace(/\.md$/, "").split("/").pop() ?? entry.articlePath)
+        : "article not found";
+      const why = entry.status === "pending" ? "answers not reviewed" : "rejected";
+      const meta = item.createDiv({ cls: "lacuna-meta" });
+      meta.createSpan({ text: `${entry.id !== null ? `Lacuna #${entry.id} · ` : ""}${why} · marker not in the note` });
+      if (this.listScope === "vault") meta.createSpan({ text: ` · ${article}`, attr: { title: entry.articlePath ?? "" } });
+
+      const actions = item.createDiv({ cls: "lacuna-actions" });
+      actions.createEl("button", { text: "Open note" }).addEventListener("click", () => void this.plugin.openNote(entry.path));
+      const discard = actions.createEl("button", { text: "Discard…", attr: { title: "Move this history note to the trash, after asking" } });
+      discard.addEventListener("click", () => void this.plugin.discardNote(entry.path));
     }
   }
 

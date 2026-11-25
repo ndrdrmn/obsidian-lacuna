@@ -34,6 +34,7 @@ import {
   type LacunaSettings,
 } from "./settings-model";
 import { itemState, type ItemState } from "./status";
+import { confirmAction } from "./view/confirm-modal";
 import { ReviewModal } from "./view/review-modal";
 import { SidebarView, VIEW_TYPE_LACUNA } from "./view/SidebarView";
 
@@ -442,6 +443,32 @@ export default class LacunaPlugin extends Plugin {
     } finally {
       this.reviewOpen.delete(key);
     }
+  }
+
+  /**
+   * Discard an orphan: ask, and if the answer is yes move its history note to the trash (where
+   * Obsidian's "Deleted files" setting says). Nothing happens if the dialog is closed or says no.
+   */
+  async discardNote(path: string): Promise<void> {
+    const file = this.app.vault.getFileByPath(path);
+    if (!file) {
+      new Notice("That history note no longer exists.");
+      return;
+    }
+    const status = this.history.list().find((e) => e.path === path)?.status;
+    const what =
+      status === "pending"
+        ? "It still holds answers that you have not reviewed, but the marker they were for is not in the article any more."
+        : "It records answers that you rejected for a marker that is not in the article any more.";
+    const yes = await confirmAction(this.app, {
+      title: "Move this history note to the trash?",
+      message: `“${file.basename}”. ${what} It goes where Obsidian's “Deleted files” setting sends deleted notes.`,
+      confirm: "Move to the trash",
+      cancel: "Keep it",
+    });
+    if (!yes) return;
+    await this.app.fileManager.trashFile(file);
+    new Notice(`Lacuna: moved “${file.basename}” to the trash.`);
   }
 
   /** Tell the user when a search ends, even if the sidebar is closed. */

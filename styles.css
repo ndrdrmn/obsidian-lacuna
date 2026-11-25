@@ -308,3 +308,19 @@
 input.lacuna-invalid {
   border-color: var(--text-error);
 }
+
+/* Orphans: history notes whose marker is not in the article any more. Not a link to anywhere. */
+.lacuna-view .lacuna-orphan .lacuna-line {
+  cursor: default;
+}
+
+.lacuna-view .lacuna-orphan .lacuna-line:hover {
+  background: none;
+}
+
+.lacuna-view .lacuna-meta {
+  padding: 0 var(--size-4-2);
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  overflow-wrap: anywhere;
+}

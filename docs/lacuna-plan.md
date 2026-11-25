@@ -98,7 +98,7 @@ August 24, 1995
 …
 ```
 
-**Pending note ↔ marker matching:** by the `article` link plus the exact `marker` text. If no marker matches, the item is shown as an orphan with *Discard*.
+**Pending note ↔ marker matching:** by the `article` link plus the exact `marker` text. If no marker matches, the note is shown as an orphan, with *Discard* (which asks, then moves the note to the trash).
 
 **Replacement per kind**
 - `suppl`: `answer<cite>`.

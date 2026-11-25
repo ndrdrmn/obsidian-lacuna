@@ -170,6 +170,9 @@ export interface HistoryEntry {
   /** The note the `article` property points to, if it resolves. */
   articlePath: string | null;
   asked: string;
+  /** The `kind` and `question` properties, to say what an orphan was about without opening it. */
+  kind?: Kind;
+  question?: string;
 }
 
 /** Every note of one status that belongs to a marker (same article, same marker text), oldest first. */

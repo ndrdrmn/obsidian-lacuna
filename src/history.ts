@@ -8,6 +8,7 @@ import {
   type HistoryEntry,
   type HistoryNoteInput,
 } from "./history-note";
+import { KINDS, type Kind } from "./lang/packs";
 import { isHistoryPath, cleanFolderName } from "./paths";
 import type { LacunaSettings } from "./settings-model";
 
@@ -97,6 +98,8 @@ export class HistoryStore {
         marker: typeof fm.marker === "string" ? fm.marker : "",
         articlePath: article?.path ?? null,
         asked: typeof fm.asked === "string" ? fm.asked : "",
+        kind: typeof fm.kind === "string" && (KINDS as readonly string[]).includes(fm.kind) ? (fm.kind as Kind) : undefined,
+        question: typeof fm.question === "string" ? fm.question : undefined,
       });
     }
     return entries;
