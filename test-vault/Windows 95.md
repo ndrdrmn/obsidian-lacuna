@@ -1,48 +1,40 @@
 ---
 title: Windows 95
-tags: [test]
-marker: "==?suppl: this one is in the frontmatter and must be ignored=="
+tags: [example]
+marker: "==?suppl: a marker in the frontmatter is never listed=="
 ---
 # Windows 95
 
-## Try inserting (step 3)
+*An example note for trying Lacuna. Every highlight that starts with `==?` is a lacuna: open the Lacuna sidebar to list them, then solve one with Claude or answer it yourself. To add your own, select some words and run `/adloc`, or right-click and choose "Ask about this…".*
 
-Put the cursor on the empty line below and run `/adloc` (the Slash commands core plugin must be on), or right-click, or type `==?`:
+## The release
 
+Windows 95 was a consumer operating system from Microsoft. It was developed under the codename ==?fill: the codename== and went on sale on ==?suppl: exact retail release date==.
 
-Select some words and run `/adloc` or right-click "Ask about this…": the selection becomes the question. Try with: ==?the exact release date.==
+It reached the shops in the summer of 1996 ==?sic:== and was promoted with one of the largest advertising campaigns of its time. Microsoft later said that it sold a million copies in the first four days ==?fontes: the sales figures for the launch week==.
 
-==? default question==
+## What was new
 
-==?fontes:  ==
+The Start menu and the taskbar made their first appearance in this version. Unlike Windows 3.1, it ran programs in 32-bit mode ==?cf: how Windows 95 and Windows 3.1 handled memory==, and it allowed file names longer than eight characters.
 
-==?glossa: ==
-## Markers to list (step 4)
+Many people still remember the startup sound. ==?who composed it==
 
-Windows 95 was released on ==?suppl: exact release date== by Microsoft.
+Plug and Play was one of its selling points. A block marker, alone on its line, may get an answer of several lines:
 
-Windows 95 introduced the Start menu ==?check: the Start menu appeared first in Windows 95== and the taskbar.
+==?glossa: what Plug and Play detection did==
 
-English and Italian keywords: ==?fill: the codename== and ==?verifica: the retail price==.
+Several editions followed, among them ==?suppl: the editions and what set
+each of them apart==, and a marker may run over two lines like this one.
 
-No keyword, so the default kind applies: ==?who designed the startup sound==
+## Other languages
 
-On its own line, so a block answer is allowed:
+English keywords work out of the box, as in the codename above. Italian has to be switched on in the Lacuna settings first; until then the marker below has no known keyword and is read as a plain question: ==?verifica: Windows 95 non richiedeva MS-DOS per avviarsi==.
 
-==?explain: how the Plug and Play detection worked==
+## Not markers
 
-==?suppl: can I write on
-multiple lines
-and they appear as a single question
-in the sidebar==
+None of these are listed.
 
-==?glossa: what is Answer myself==
-
-
-
-## Things that must NOT be listed
-
-A plain highlight: ==this is not a marker==, and a highlight followed by a question mark ==really==? is not one either.
+A plain highlight, ==this is not a marker==, and a highlight followed by a question mark, ==really==?, are not markers.
 
 Inline code: `==?suppl: not a marker==`
 
@@ -50,8 +42,4 @@ Inline code: `==?suppl: not a marker==`
 ==?suppl: not a marker, inside a code block==
 ```
 
-==?sic: unclosed multiline
-
-
-
-
+The `marker` property in this note's frontmatter, which history notes use to record their marker, is never scanned either.
