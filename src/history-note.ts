@@ -9,7 +9,7 @@ export function isHistoryStatus(v: unknown): v is HistoryStatus {
 }
 
 export interface HistoryNoteInput {
-  /** The number of the note, unique in the vault: see `nextHistoryId`. */
+  /** The number of the note, unique in the vault: one more than the highest there is (`nextHistoryId`). */
   id: number;
   kind: Kind;
   alias?: { word: string; packId: string };
@@ -30,10 +30,16 @@ export interface HistoryNoteInput {
   candidates: Candidate[];
 }
 
-/** The number for the next history note: one more than the largest known, stored or in the vault. */
-export function nextHistoryId(stored: number, entries: readonly { id: number | null }[]): number {
-  let max = Number.isFinite(stored) ? Math.max(0, Math.floor(stored)) : 0;
-  for (const e of entries) if (e.id !== null && e.id > max) max = e.id;
+/** The number in a history note's file name, `Lacuna 122 — Windows 95 — question`, or null for any other name. */
+export function historyNumberOfName(basename: string): number | null {
+  const m = /^Lacuna (\d+) — /.exec(basename);
+  return m ? Number(m[1]) : null;
+}
+
+/** The number for the next history note: one more than the largest of those known (null: no number). */
+export function nextHistoryId(known: Iterable<number | null>): number {
+  let max = 0;
+  for (const n of known) if (n !== null && Number.isFinite(n) && n > max) max = Math.floor(n);
   return max + 1;
 }
 

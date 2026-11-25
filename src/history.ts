@@ -2,6 +2,7 @@ import { getLinkpath, normalizePath, type App, type TFile } from "obsidian";
 import {
   buildHistoryNote,
   historyFileName,
+  historyNumberOfName,
   isHistoryStatus,
   nextHistoryId,
   type HistoryEntry,
@@ -10,19 +11,14 @@ import {
 import { isHistoryPath, cleanFolderName } from "./paths";
 import type { LacunaSettings } from "./settings-model";
 
-/** Where the number of the last history note is kept, so that no note has to be read to find it. */
-export interface HistoryCounter {
-  get(): number;
-  /** Must remember the number before it returns a promise: two notes made together must not share one. */
-  set(n: number): Promise<void>;
-}
-
 /** Reads and writes the history notes (the apparatus) in the vault. */
 export class HistoryStore {
+  /** The last number handed out in this session: a note made a moment ago may not show in the vault yet. */
+  private issued = 0;
+
   constructor(
     private readonly app: App,
     private readonly settings: () => LacunaSettings,
-    private readonly counter: HistoryCounter,
   ) {}
 
   /** Where the history notes of this article go. */
@@ -45,18 +41,24 @@ export class HistoryStore {
   }
 
   /**
-   * Write a new pending history note, with the next number. The number is one more than the
-   * larger of the stored counter and the numbers in the vault, which the metadata cache
-   * already holds: the stored counter alone could fall behind if `data.json` were reset or synced.
+   * Write a new pending history note, with the next number: one more than the highest in the
+   * vault. There is no stored counter, so there is no state apart from the notes themselves: delete
+   * them and the numbering starts again. The vault is read twice, because each is blind in a way
+   * the other is not: file names are there from the first moment (the metadata cache is filled
+   * in gradually while Obsidian starts), and a note may have been renamed or moved, which the
+   * `id` property survives.
    * Never overwrites: a name that is taken (it should not be) gets a suffix.
    */
   async create(
     article: TFile,
     input: Omit<HistoryNoteInput, "articleLink" | "id">,
   ): Promise<{ file: TFile; id: number }> {
+    const known: (number | null)[] = [this.issued];
+    for (const file of this.app.vault.getMarkdownFiles()) known.push(historyNumberOfName(file.basename));
+    for (const entry of this.list()) known.push(entry.id);
+    const id = nextHistoryId(known);
     // Before any await, so that two notes made at the same moment get different numbers.
-    const id = nextHistoryId(this.counter.get(), this.list());
-    const saved = this.counter.set(id);
+    this.issued = id;
 
     const folder = this.folderFor(article);
     await this.ensureFolder(folder);
@@ -69,7 +71,6 @@ export class HistoryStore {
     // Obsidian keeps this link up to date if the article is renamed or moved.
     const articleLink = this.app.fileManager.generateMarkdownLink(article, path);
     const file = await this.app.vault.create(path, buildHistoryNote({ ...input, id, articleLink }));
-    await saved;
     return { file, id };
   }
 

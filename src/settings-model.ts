@@ -124,15 +124,6 @@ export function normalizeSettings(raw: unknown): LacunaSettings {
   };
 }
 
-/**
- * The number of the last history note, as `data.json` has it beside the settings.
- * A missing or damaged value is 0: the numbers found in the vault take over from there.
- */
-export function readLastHistoryId(raw: unknown): number {
-  const v = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>).lastHistoryId : undefined;
-  return typeof v === "number" && Number.isInteger(v) && v > 0 ? v : 0;
-}
-
 /** Check or uncheck a language. Unchecking the last one checks Latin again. */
 export function toggleLang(s: LacunaSettings, id: string, on: boolean): LacunaSettings {
   let enabled = on ? [...new Set([...s.enabledLangs, id])] : s.enabledLangs.filter((x) => x !== id);

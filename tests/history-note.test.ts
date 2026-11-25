@@ -4,6 +4,7 @@ import {
   buildHistoryNote,
   formatLocalDateTime,
   historyFileName,
+  historyNumberOfName,
   isHistoryStatus,
   jobKey,
   matchHistory,
@@ -159,24 +160,36 @@ describe("historyFileName", () => {
 });
 
 describe("nextHistoryId", () => {
-  const e = (id: number | null) => ({ id });
-
-  it("starts at 1", () => {
-    expect(nextHistoryId(0, [])).toBe(1);
+  it("starts at 1 when there is no history note: delete them all and the numbering starts again", () => {
+    expect(nextHistoryId([])).toBe(1);
+    expect(nextHistoryId([null, null])).toBe(1);
   });
 
-  it("follows the stored counter", () => {
-    expect(nextHistoryId(121, [e(5), e(null)])).toBe(122);
+  it("is one more than the highest number known, from wherever it comes", () => {
+    expect(nextHistoryId([7, 120, 9])).toBe(121);
+    expect(nextHistoryId([5, null, 3])).toBe(6);
   });
 
-  it("follows the notes in the vault when the stored counter is behind (a reset or synced data.json)", () => {
-    expect(nextHistoryId(3, [e(7), e(120), e(9)])).toBe(121);
-    expect(nextHistoryId(0, [e(4)])).toBe(5);
+  it("ignores a number that is damaged", () => {
+    expect(nextHistoryId([NaN, -4, 2])).toBe(3);
+    expect(nextHistoryId([NaN])).toBe(1);
+  });
+});
+
+describe("historyNumberOfName", () => {
+  it("reads the number out of a history note's name", () => {
+    expect(historyNumberOfName("Lacuna 122 — Windows 95 — the codename")).toBe(122);
+    expect(historyNumberOfName("Lacuna 3 — a — b 2")).toBe(3);
   });
 
-  it("ignores a damaged counter", () => {
-    expect(nextHistoryId(NaN, [e(2)])).toBe(3);
-    expect(nextHistoryId(-5, [])).toBe(1);
+  it("is null for any other note", () => {
+    for (const name of ["Windows 95", "Lacuna — x", "My Lacuna 5 — x", "lacuna 5 — x", "Lacuna 5 - x", "Lacuna x — y"]) {
+      expect(historyNumberOfName(name), name).toBeNull();
+    }
+  });
+
+  it("agrees with historyFileName", () => {
+    expect(historyNumberOfName(historyFileName(41, "Windows 95", "what is it"))).toBe(41);
   });
 });
 
