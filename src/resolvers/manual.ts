@@ -1,5 +1,6 @@
 import { Modal, Platform, type App } from "obsidian";
 import { KIND_HINTS } from "../lang/packs";
+import { renderContext } from "../view/context-box";
 import { MANUAL_RESOLVER, validateManualAnswer, type ContextPiece } from "./manual-answer";
 import { CancelledError, type Resolver, type SolveRequest, type SolveResult } from "./resolver";
 
@@ -59,13 +60,7 @@ class ManualModal extends Modal {
     what.createSpan({ text: ` ${asked}` });
 
     // Where it is: the paragraph before, its own, and the one after.
-    const where = contentEl.createDiv({ cls: "lacuna-modal-context" });
-    let markerEl: HTMLElement | null = null;
-    for (const piece of request.context) {
-      const el = where.createSpan({ cls: `lacuna-ctx-${piece.role}`, text: piece.text });
-      if (piece.role === "marker") markerEl = el;
-    }
-    markerEl?.scrollIntoView({ block: "center" });
+    renderContext(contentEl, request.context);
 
     // `sic`: is the claim right?
     let answerLabel: HTMLElement | null = null;

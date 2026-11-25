@@ -1,15 +1,35 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { buildAliasMap } from "../src/lang/keywords";
 import { LATIN_ID } from "../src/lang/packs";
 import { parseMarkers } from "../src/marker";
 
+const EXAMPLE = "test-vault/Windows 95.md";
+
+/**
+ * The example as it is committed. Whoever tests in the vault changes the working copy (the markers
+ * get answered), and that must not fail the guard; without git, the working copy is all there is.
+ */
+function exampleText(): string {
+  const root = new URL("..", import.meta.url);
+  try {
+    return execFileSync("git", ["show", `HEAD:${EXAMPLE}`], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return readFileSync(new URL(`../${EXAMPLE}`, import.meta.url), "utf8");
+  }
+}
+
 /**
  * `test-vault/Windows 95.md` is the first thing anyone who forks the repository opens.
  * This keeps it a good example: what it shows as markers must be markers, and nothing else.
  */
 describe("the example note of the test vault", () => {
-  const text = readFileSync(new URL("../test-vault/Windows 95.md", import.meta.url), "utf8");
+  const text = exampleText();
   // The settings of a new vault: Latin and English, and suppl for a marker without a keyword.
   const markers = parseMarkers(text, { aliasMap: buildAliasMap([LATIN_ID, "en"], {}), defaultKind: "suppl" });
 

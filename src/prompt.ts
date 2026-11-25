@@ -1,4 +1,4 @@
-import type { ContextResult } from "./context";
+import { OTHER_GAP, blankOtherMarkers, type ContextResult } from "./context";
 import type { Kind } from "./lang/packs";
 
 export interface PromptRequest {
@@ -47,7 +47,8 @@ function sicTask(claim: string | undefined): string {
 }
 
 export function buildPrompt(r: PromptRequest): string {
-  const { context } = r;
+  // The other lacunae of the passage are not this question: they must not read as ones.
+  const context = blankOtherMarkers(r.context);
   const passage =
     context.text.slice(0, context.markerStart) + GAP + context.text.slice(context.markerEnd);
 
@@ -62,7 +63,11 @@ export function buildPrompt(r: PromptRequest): string {
   );
   parts.push(`Note title: ${r.noteTitle}`);
   parts.push(
-    `The passage comes from the author's draft. The gap is marked ${GAP}.\n<passage>\n${passage}\n</passage>`,
+    `The passage comes from the author's draft. The gap is marked ${GAP}.` +
+      (passage.includes(OTHER_GAP)
+        ? ` Other gaps, marked ${OTHER_GAP}, are separate questions that are not yours to answer: ignore them.`
+        : "") +
+      `\n<passage>\n${passage}\n</passage>`,
   );
   parts.push(`Task (kind: ${r.kind}): ${r.kind === "sic" ? sicTask(r.claim) : TASKS[r.kind]}`);
   parts.push(`Question: ${r.question === "" ? "(none given)" : r.question}`);
@@ -83,6 +88,11 @@ export function buildPrompt(r: PromptRequest): string {
     `Return at most ${r.maxCandidates} candidate${r.maxCandidates === 1 ? "" : "s"}, best first. Each candidate ` +
       `has an answer and at least one source (title, url, and a short verbatim quote when you can). The field ` +
       `"verdict" is only for the kind "sic": omit it for every other kind.`,
+  );
+  parts.push(
+    "Every candidate answers this gap only. The sources of a candidate, and the quotes you give, must support " +
+      "that very answer: never attach a source that supports a different answer, or one that answers another " +
+      "question. Return fewer candidates rather than one you found no support for.",
   );
   return parts.join("\n\n");
 }

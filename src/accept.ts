@@ -1,8 +1,9 @@
 import { MarkdownView, type App, type Editor, type TFile } from "obsidian";
 import {
   CITATION_LABEL,
-  anchorIdFor,
   applyEdits,
+  blockAnchorIdFor,
+  footnoteIdFor,
   footnoteLabel,
   planAccept,
   type AcceptPlan,
@@ -59,7 +60,7 @@ async function applyThroughEditor(
   env: AcceptEnv,
   req: AcceptRequest,
   view: MarkdownView,
-): Promise<{ anchor: string | null } | null> {
+): Promise<{ anchor: string | null; excerpt: string } | null> {
   const editor: Editor = view.editor;
   const before = editor.getValue();
   const plan = planFor(env, req, before);
@@ -83,7 +84,7 @@ async function applyThroughEditor(
   if (unix(onDisk) !== expected) {
     throw new Error("The answer is in the editor but the note was not saved. Save it, or undo the change.");
   }
-  return { anchor: plan.anchor };
+  return { anchor: plan.anchor, excerpt: plan.excerpt };
 }
 
 const MARKER_GONE = "The marker is no longer in the note, so the answer was not applied.";
@@ -103,7 +104,8 @@ function planFor(env: AcceptEnv, req: AcceptRequest, text: string): AcceptPlan |
     verdict: req.verdict,
     style,
     link,
-    id: anchorIdFor(req.noteId, text),
+    footnoteId: footnoteIdFor(req.noteId, text),
+    anchorId: blockAnchorIdFor(text),
     question: req.question,
   });
 }
@@ -121,11 +123,13 @@ export async function acceptAnswer(env: AcceptEnv, req: AcceptRequest): Promise<
   const { app } = env;
   // Assigned inside callbacks as well, which the compiler does not follow: say what it can be.
   let anchor = null as string | null;
+  let excerpt = "";
 
   const view = openEditorView(app, req.article);
   const viaEditor = view ? await applyThroughEditor(env, req, view) : null;
   if (viaEditor) {
     anchor = viaEditor.anchor;
+    excerpt = viaEditor.excerpt;
   } else {
     let applied = false;
     await app.vault.process(req.article, (data) => {
@@ -133,14 +137,18 @@ export async function acceptAnswer(env: AcceptEnv, req: AcceptRequest): Promise<
       if (!plan) return data;
       applied = true;
       anchor = plan.anchor;
+      excerpt = plan.excerpt;
       return applyEdits(data, plan.edits);
     });
     if (!applied) throw new Error(MARKER_GONE);
   }
 
   // Where the answer is: the block's anchor, or just the article when the block cannot take one (a heading).
-  const at = app.fileManager.generateMarkdownLink(req.article, req.historyNote.path, anchor ? `#^${anchor}` : undefined);
-  await app.vault.process(req.historyNote, (data) => addAnsweredAt(data, at));
+  // The property holds the plain link; the line under the title says "ad loc." (at the place) and quotes the passage.
+  const subpath = anchor ? `#^${anchor}` : undefined;
+  const at = app.fileManager.generateMarkdownLink(req.article, req.historyNote.path, subpath);
+  const atPlace = app.fileManager.generateMarkdownLink(req.article, req.historyNote.path, subpath, CITATION_LABEL);
+  await app.vault.process(req.historyNote, (data) => addAnsweredAt(data, atPlace, excerpt));
   await app.fileManager.processFrontMatter(req.historyNote, (fm: Record<string, unknown>) => {
     fm.lacuna = "resolved";
     fm.at = at;

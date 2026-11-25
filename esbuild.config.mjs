@@ -1,6 +1,6 @@
 import esbuild from "esbuild";
 import { builtinModules } from "node:module";
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, watch } from "node:fs";
 
 const production = process.argv[2] === "production";
 
@@ -48,4 +48,13 @@ if (production) {
   process.exit(0);
 } else {
   await context.watch();
+  // The watcher above follows the bundle's files only, so a change to styles.css alone never reached
+  // the vault: copy it again whenever it changes.
+  watch("styles.css", () => {
+    try {
+      copyFileSync("styles.css", `${outDir}/styles.css`);
+    } catch {
+      // an editor may have it locked for a moment; the next change copies it
+    }
+  });
 }

@@ -110,8 +110,30 @@
   gap: var(--size-4-3);
 }
 
+/* kind  Lacuna #5 · the question · who answered */
 .lacuna-modal-what {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--size-4-2);
+}
+
+.lacuna-modal-id,
+.lacuna-modal-question {
   font-weight: var(--font-semibold);
+}
+
+.lacuna-modal-id {
+  color: var(--text-muted);
+}
+
+.lacuna-modal-sep,
+.lacuna-modal-resolver {
+  color: var(--text-faint);
+}
+
+.lacuna-modal-resolver {
+  font-size: var(--font-ui-smaller);
 }
 
 /* The note around the marker: its own paragraph in the normal colour, its neighbours muted. */
@@ -210,4 +232,69 @@
   margin-right: auto;
   font-size: var(--font-ui-smaller);
   color: var(--text-faint);
+}
+
+/* The review dialog: Claude's candidates */
+.lacuna-verdict {
+  font-weight: var(--font-semibold);
+}
+
+.lacuna-verdict-confirmed {
+  color: var(--text-success);
+}
+
+.lacuna-verdict-corrected {
+  color: var(--text-error);
+}
+
+.lacuna-verdict-uncertain {
+  color: var(--text-muted);
+}
+
+.lacuna-modal-hint {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.lacuna-candidate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  padding: var(--size-4-2) var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+
+.lacuna-candidate-head {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold);
+  color: var(--text-accent);
+}
+
+/* The answer itself is the thing to read: larger, with an accent bar. */
+.lacuna-candidate-text {
+  padding-left: var(--size-4-3);
+  border-left: 3px solid var(--interactive-accent);
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-medium);
+  color: var(--text-normal);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.lacuna-sources {
+  margin: 0;
+  padding-left: var(--size-4-5);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.lacuna-source-quote {
+  font-style: italic;
+}
+
+.lacuna-candidate-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--size-4-2);
 }

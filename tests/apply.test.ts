@@ -5,24 +5,117 @@ import {
   buildCitation,
   buildReplacement,
   isBlockMarker,
-  anchorIdFor,
+  answerExcerpt,
+  blockAnchorIdFor,
+  footnoteIdFor,
   planAccept,
   planAnchor,
   replaceMarker,
 } from "../src/apply";
 
-describe("anchorIdFor", () => {
+describe("footnoteIdFor", () => {
   it("is lac- and the number of the history note", () => {
-    expect(anchorIdFor(122, "")).toBe("lac-122");
+    expect(footnoteIdFor(122, "")).toBe("lac-122");
   });
 
-  it("skips an id the note already uses, as a footnote or as an anchor", () => {
-    expect(anchorIdFor(7, "text[^lac-7]\n\n[^lac-7]: x")).toBe("lac-7-2");
-    expect(anchorIdFor(7, "para ^lac-7\n\ncopy[^lac-7-2]")).toBe("lac-7-3");
+  it("skips an id the article already uses, as a footnote or as an old-style anchor", () => {
+    expect(footnoteIdFor(7, "text[^lac-7]\n\n[^lac-7]: x")).toBe("lac-7-2");
+    expect(footnoteIdFor(7, "para ^lac-7\n\ncopy[^lac-7-2]")).toBe("lac-7-3");
   });
 
   it("does not mistake a longer number for the same one", () => {
-    expect(anchorIdFor(12, "text[^lac-122]")).toBe("lac-12");
+    expect(footnoteIdFor(12, "text[^lac-122]")).toBe("lac-12");
+  });
+});
+
+describe("blockAnchorIdFor", () => {
+  it("numbers the anchors of an article: adloc-1, then the next free number", () => {
+    expect(blockAnchorIdFor("")).toBe("adloc-1");
+    expect(blockAnchorIdFor("a ^adloc-1\n\nb ^adloc-2\n")).toBe("adloc-3");
+    expect(blockAnchorIdFor("a ^adloc-7\n")).toBe("adloc-8");
+  });
+
+  it("is not named after a history note, and ignores other block ids", () => {
+    expect(blockAnchorIdFor("a ^lac-7\n\nb ^mine\n\nc[^lac-9]")).toBe("adloc-1");
+  });
+
+  it("does not take a longer id for one of its own", () => {
+    expect(blockAnchorIdFor("a ^adloc-2-copy\n")).toBe("adloc-1");
+  });
+});
+
+describe("two lacunae in one paragraph", () => {
+  const link = "[[Apparatus/n|Lacuna #8]]";
+  const opts = (n: number, text: string) => ({
+    kind: "suppl" as const,
+    answer: "Chicago",
+    style: "footnote" as const,
+    link,
+    footnoteId: footnoteIdFor(n, text),
+    anchorId: blockAnchorIdFor(text),
+    question: "q",
+  });
+
+  it("the second answer reuses the paragraph's anchor, and keeps its own footnote", () => {
+    const first = "Under the codename ==?fill: x== it sold on ==?suppl: y==.\n";
+    const p1 = planAccept(first, spanOf(first), opts(7, first));
+    expect(p1.anchor).toBe("adloc-1");
+    const afterFirst = applyEdits(first, p1.edits);
+    expect(afterFirst).toContain("sold on ==?suppl: y==. ^adloc-1\n");
+
+    const span2 = { start: afterFirst.indexOf("==?suppl"), end: afterFirst.indexOf("==.", afterFirst.indexOf("==?suppl")) + 2 };
+    const p2 = planAccept(afterFirst, span2, opts(8, afterFirst));
+    expect(p2.anchor).toBe("adloc-1");
+    const done = applyEdits(afterFirst, p2.edits);
+    expect(done.match(/\^adloc-1(?![\w-])/g)).toHaveLength(1);
+    expect(done).toContain("[^lac-7]");
+    expect(done).toContain("[^lac-8]");
+  });
+});
+
+describe("answerExcerpt", () => {
+  const find = (text: string) => spanOf(text);
+
+  it("shows the words around the answer, in the paragraph only", () => {
+    const text = "Before.\n\nIt was developed under the codename ==?fill: x== and went on sale.\n\nAfter.";
+    expect(answerExcerpt(text, find(text), "Chicago")).toBe("It was developed under the codename Chicago and went on sale.");
+  });
+
+  it("cuts a long paragraph at word boundaries", () => {
+    const left = "word ".repeat(30);
+    const right = " word".repeat(30);
+    const text = `${left}==?fill: x==${right}`;
+    const e = answerExcerpt(text, find(text), "Chicago", 20);
+    expect(e.startsWith("…")).toBe(true);
+    expect(e.endsWith("…")).toBe(true);
+    expect(e).toMatch(/word Chicago word/);
+    expect(e.length).toBeLessThan(60);
+  });
+
+  it("blanks another lacuna, and drops footnote references, anchors and link brackets", () => {
+    const text = "See [[Other|the other note]] and ==?sic:== here[^lac-3] ==?fill: x== then [x] ^adloc-2";
+    const span = { start: text.indexOf("==?fill"), end: text.indexOf("== then") + 2 };
+    expect(answerExcerpt(text, span, "Y")).toBe("See the other note and […] here Y then (x)");
+  });
+
+  it("shortens a long answer, on one line", () => {
+    const text = "A ==?glossa: x== B";
+    const e = answerExcerpt(text, find(text), `one\ntwo ${"x".repeat(200)}`, 45, 30);
+    expect(e).toMatch(/^A one two x+… B$/);
+  });
+
+  it("shows only what stands before the citation when nothing replaces the marker", () => {
+    const text = "It reached the shops in 1996 ==?sic:== and was promoted.";
+    expect(answerExcerpt(text, find(text), "")).toBe("It reached the shops in 1996 and was promoted.");
+  });
+
+  it("is part of the plan: a sic correction shows the correction", () => {
+    const text = "It was 1996 ==?sic:==.\n";
+    const plan = planAccept(text, find(text), {
+      kind: "sic", verdict: "corrected", answer: "1995", style: "inline", link: "[[n|ad loc.]]",
+      footnoteId: "lac-1", anchorId: "adloc-1", question: "",
+    });
+    expect(plan.excerpt).toBe("It was 1996 (actually: 1995).");
   });
 });
 
@@ -178,7 +271,8 @@ describe("planAccept", () => {
         answer: "1995",
         style: "footnote",
         link,
-        id: "lac-122",
+        footnoteId: "lac-122",
+        anchorId: "adloc-1",
         question: "q",
         ...over,
       }).edits,
@@ -186,59 +280,59 @@ describe("planAccept", () => {
 
   it("replaces the marker, anchors the paragraph and adds the footnote at the end", () => {
     expect(accept("Released in ==?suppl: year== by MS.\n")).toBe(
-      `Released in 1995[^lac-122] by MS. ^lac-122\n\n[^lac-122]: ${note}\n`,
+      `Released in 1995[^lac-122] by MS. ^adloc-1\n\n[^lac-122]: ${note}\n`,
     );
   });
 
   it("stacks the footnote under existing ones", () => {
     expect(accept("A ==?suppl: x==[^1].\n\n[^1]: old\n")).toBe(
-      `A 1995[^lac-122][^1]. ^lac-122\n\n[^1]: old\n[^lac-122]: ${note}\n`,
+      `A 1995[^lac-122][^1]. ^adloc-1\n\n[^1]: old\n[^lac-122]: ${note}\n`,
     );
   });
 
   it("inline style adds no footnote, only the anchor", () => {
     const link = "[[Apparatus/n|ad loc.]]";
     expect(accept("Released in ==?suppl: year== by MS.\n", { style: "inline", link })).toBe(
-      "Released in 1995 [[Apparatus/n|ad loc.]] by MS. ^lac-122\n",
+      "Released in 1995 [[Apparatus/n|ad loc.]] by MS. ^adloc-1\n",
     );
   });
 
   it("works when the marker is the last thing in the note", () => {
-    expect(accept("Released ==?suppl: year==")).toBe(`Released 1995[^lac-122] ^lac-122\n\n[^lac-122]: ${note}\n`);
+    expect(accept("Released ==?suppl: year==")).toBe(`Released 1995[^lac-122] ^adloc-1\n\n[^lac-122]: ${note}\n`);
   });
 
   it("sic: a confirmed claim leaves only the citation, a wrong one a correction", () => {
     expect(accept("It was 1995 ==?sic:==.\n", { kind: "sic", verdict: "confirmed" })).toBe(
-      `It was 1995 [^lac-122]. ^lac-122\n\n[^lac-122]: ${note}\n`,
+      `It was 1995 [^lac-122]. ^adloc-1\n\n[^lac-122]: ${note}\n`,
     );
     expect(accept("It was 1996 ==?sic:==.\n", { kind: "sic", verdict: "corrected" })).toBe(
-      `It was 1996 (actually: 1995[^lac-122]). ^lac-122\n\n[^lac-122]: ${note}\n`,
+      `It was 1996 (actually: 1995[^lac-122]). ^adloc-1\n\n[^lac-122]: ${note}\n`,
     );
   });
 
   it("a block marker keeps a multi-line answer, and the anchor goes at its end", () => {
     expect(accept("Before.\n\n==?glossa: what==\n\nAfter.\n", { kind: "glossa", answer: "Line one.\nLine two." })).toBe(
-      `Before.\n\nLine one.\nLine two.[^lac-122] ^lac-122\n\nAfter.\n\n[^lac-122]: ${note}\n`,
+      `Before.\n\nLine one.\nLine two.[^lac-122] ^adloc-1\n\nAfter.\n\n[^lac-122]: ${note}\n`,
     );
   });
 
   it("an inline marker joins the lines of the answer", () => {
     const link = "[[n|ad loc.]]";
     expect(accept("See ==?suppl: x== now.\n", { answer: "one\ntwo", style: "inline", link })).toBe(
-      "See one two [[n|ad loc.]] now. ^lac-122\n",
+      "See one two [[n|ad loc.]] now. ^adloc-1\n",
     );
   });
 
   it("a table answer puts the citation under the table", () => {
     expect(accept("==?cf: compare==\n", { kind: "cf", answer: "| a | b |\n|---|---|\n| 1 | 2 |" })).toBe(
-      `| a | b |\n|---|---|\n| 1 | 2 |\n\n[^lac-122] ^lac-122\n\n[^lac-122]: ${note}\n`,
+      `| a | b |\n|---|---|\n| 1 | 2 |\n\n[^lac-122] ^adloc-1\n\n[^lac-122]: ${note}\n`,
     );
   });
 
   it("a heading takes no anchor, and says so", () => {
     const text = "## Title ==?suppl: x==\n";
     const plan = planAccept(text, spanOf(text), {
-      kind: "suppl", answer: "A", style: "inline", link: "[[n|ad loc.]]", id: "lac-1", question: "",
+      kind: "suppl", answer: "A", style: "inline", link: "[[n|ad loc.]]", footnoteId: "lac-1", anchorId: "adloc-1", question: "",
     });
     expect(plan.anchor).toBeNull();
     expect(applyEdits(text, plan.edits)).toBe("## Title A [[n|ad loc.]]\n");
@@ -247,7 +341,7 @@ describe("planAccept", () => {
   it("reuses an anchor the block already has, and returns it", () => {
     const text = "Text ==?suppl: x== here. ^mine\n";
     const plan = planAccept(text, spanOf(text), {
-      kind: "suppl", answer: "A", style: "inline", link: "[[n|ad loc.]]", id: "lac-1", question: "",
+      kind: "suppl", answer: "A", style: "inline", link: "[[n|ad loc.]]", footnoteId: "lac-1", anchorId: "adloc-1", question: "",
     });
     expect(plan.anchor).toBe("mine");
     expect(applyEdits(text, plan.edits)).toBe("Text A [[n|ad loc.]] here. ^mine\n");
@@ -256,9 +350,9 @@ describe("planAccept", () => {
   it("returns the anchor it wrote", () => {
     const text = "Text ==?suppl: x==\n";
     const plan = planAccept(text, spanOf(text), {
-      kind: "suppl", answer: "A", style: "inline", link: "[[n|ad loc.]]", id: "lac-1", question: "",
+      kind: "suppl", answer: "A", style: "inline", link: "[[n|ad loc.]]", footnoteId: "lac-1", anchorId: "adloc-1", question: "",
     });
-    expect(plan.anchor).toBe("lac-1");
+    expect(plan.anchor).toBe("adloc-1");
   });
 });
 

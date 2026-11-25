@@ -1,10 +1,19 @@
-import { MarkdownView, Notice, Plugin, TFile, debounce, type Editor } from "obsidian";
+import { MarkdownView, Notice, Plugin, TFile, debounce, parseYaml, type Editor } from "obsidian";
 import { acceptAnswer } from "./accept";
-import { extractClaim, extractContext, type ContextResult } from "./context";
+import { blankOtherMarkers, extractClaim, extractContext, type ContextResult } from "./context";
 import { isBlockMarker } from "./apply";
 import { KeywordModal, MarkerSuggest } from "./editor/suggest";
 import { HistoryStore } from "./history";
-import { jobKey, matchHistory, type HistoryEntry } from "./history-note";
+import {
+  jobKey,
+  matchHistory,
+  matchHistoryAll,
+  rejectedAnswers,
+  splitFrontmatter,
+  toHistoryData,
+  type HistoryData,
+  type HistoryEntry,
+} from "./history-note";
 import { buildInsertion } from "./insert";
 import { buildAliasMap, popupKeywords, type AliasEntry, type KeywordItem } from "./lang/keywords";
 import { parseMarkers, pickMarker, type Marker, type ParseOptions } from "./marker";
@@ -14,7 +23,8 @@ import { JobQueue, type Job } from "./queue";
 import { ClaudeCliResolver } from "./resolvers/claudeCli";
 import { ManualResolver, type ManualDraft } from "./resolvers/manual";
 import { splitContext } from "./resolvers/manual-answer";
-import { CancelledError, type Resolver, type SolveResult } from "./resolvers/resolver";
+import { CancelledError, type Candidate, type Resolver, type SolveResult, type Verdict } from "./resolvers/resolver";
+import { replacementVerdict } from "./review";
 import { MarkerIndex } from "./scanner";
 import { LacunaSettingTab } from "./settings";
 import {
@@ -25,12 +35,18 @@ import {
   type LacunaSettings,
 } from "./settings-model";
 import { itemState, type ItemState } from "./status";
+import { ReviewModal } from "./view/review-modal";
 import { SidebarView, VIEW_TYPE_LACUNA } from "./view/SidebarView";
 
 /** What a job needs: where the marker was seen. It is found again in the current text when the job runs. */
 export interface SolvePayload {
   path: string;
   marker: Marker;
+  /**
+   * Answers that were just rejected, which the metadata cache may not show as rejected yet.
+   * The rejected notes found in the vault are added to them.
+   */
+  rejected?: readonly string[];
 }
 
 /** A marker as it is in the note right now, with what a resolver needs to know about it. */
@@ -52,8 +68,9 @@ export default class LacunaPlugin extends Plugin {
   queue!: JobQueue<SolvePayload, string>;
   private resolver!: Resolver;
   private manual!: ManualResolver;
-  /** Markers whose "Answer myself" dialog is open, so that a double click does not open two. */
+  /** Markers whose "Answer myself" or review dialog is open, so that a double click does not open two. */
   private readonly manualOpen = new Set<string>();
+  private readonly reviewOpen = new Set<string>();
   /** What was typed in a dialog that was closed without saving, until Obsidian restarts. */
   private readonly manualDrafts = new Map<string, ManualDraft>();
   private aliasMap: Map<string, AliasEntry> | null = null;
@@ -185,8 +202,8 @@ export default class LacunaPlugin extends Plugin {
   // ---- Solving ------------------------------------------------------------
 
   /** Queue a search for this marker. Does nothing if one is already queued or running. */
-  solve(path: string, marker: Marker): void {
-    this.queue.enqueue(jobKey(path, marker.raw), { path, marker });
+  solve(path: string, marker: Marker, rejected?: readonly string[]): void {
+    this.queue.enqueue(jobKey(path, marker.raw), { path, marker, rejected });
   }
 
   cancel(path: string, marker: Marker): void {
@@ -242,17 +259,19 @@ export default class LacunaPlugin extends Plugin {
       asked: new Date(),
       resolver: result.resolver,
       verdict: p.marker.kind === "sic" ? result.verdict : undefined,
-      // The passage is kept in every note, so that it shows what the marker was about.
-      context: p.context.text,
+      // The passage is kept in every note, so that it shows what the marker was about. A search gets
+      // the other lacunae blanked out (see `buildPrompt`), and the note says what the search got.
+      context: sent ? blankOtherMarkers(p.context).text : p.context.text,
       contextSent: sent,
       candidates: result.candidates,
     });
   }
 
   /** One job of the queue: build the prompt, ask Claude, write the pending history note. */
-  private async runSolve({ path, marker }: SolvePayload, signal: AbortSignal): Promise<string> {
+  private async runSolve({ path, marker, rejected }: SolvePayload, signal: AbortSignal): Promise<string> {
     const p = await this.prepare(path, marker);
     if (p.marker.kind !== "sic" && p.marker.question === "") throw new Error("Write the question first.");
+    const alreadyRejected = await this.rejectedAnswersFor(path, p.marker, rejected);
 
     const prompt = buildPrompt({
       kind: p.marker.kind,
@@ -261,7 +280,7 @@ export default class LacunaPlugin extends Plugin {
       context: p.context,
       claim: p.claim,
       inline: p.inline,
-      rejected: [],
+      rejected: alreadyRejected,
       maxCandidates: this.settings.maxCandidates,
     });
     const result = await this.resolver.solve(
@@ -302,20 +321,7 @@ export default class LacunaPlugin extends Plugin {
       const note = await this.record(p, result, false);
       const what = p.marker.question || p.marker.kind;
       try {
-        await acceptAnswer(
-          { app: this.app, parseOptions: this.parseOptions(), citationStyle: this.settings.citationStyle },
-          {
-            article: p.file,
-            historyNote: note.file,
-            noteId: note.id,
-            question: this.titleOf(p),
-            kind: p.marker.kind,
-            markerRaw: p.marker.raw,
-            markerStart: p.marker.start,
-            answer: result.candidates[0].answer,
-            verdict: result.verdict === "uncertain" ? undefined : result.verdict,
-          },
-        );
+        await this.applyAnswer(p, note, result.candidates[0].answer, result.verdict);
         new Notice(`Lacuna: answer applied for “${what}”.`);
       } catch (e) {
         // The answer is not lost: it waits in the history note.
@@ -326,6 +332,127 @@ export default class LacunaPlugin extends Plugin {
       if (!(e instanceof CancelledError)) new Notice(`Lacuna: ${e instanceof Error ? e.message : String(e)}`, 10_000);
     } finally {
       this.manualOpen.delete(key);
+    }
+  }
+
+  /** Put an answer in the article in place of the marker, and mark the history note resolved. Throws when it cannot. */
+  private applyAnswer(
+    p: Prepared,
+    note: { file: TFile; id: number },
+    answer: string,
+    verdict: Verdict | undefined,
+  ): Promise<void> {
+    return acceptAnswer(
+      { app: this.app, parseOptions: this.parseOptions(), citationStyle: this.settings.citationStyle },
+      {
+        article: p.file,
+        historyNote: note.file,
+        noteId: note.id,
+        question: this.titleOf(p),
+        kind: p.marker.kind,
+        markerRaw: p.marker.raw,
+        markerStart: p.marker.start,
+        answer,
+        verdict: replacementVerdict(p.marker.kind, verdict),
+      },
+    );
+  }
+
+  /** A history note read back from its file (not from the metadata cache, which lags behind a new note). */
+  private async readHistoryNote(file: TFile): Promise<HistoryData | null> {
+    const { yaml, body } = splitFrontmatter(await this.app.vault.read(file));
+    let properties: unknown;
+    try {
+      properties = parseYaml(yaml);
+    } catch {
+      return null;
+    }
+    return toHistoryData(properties, body);
+  }
+
+  private async rejectNote(file: TFile): Promise<void> {
+    await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+      fm.lacuna = "rejected";
+    });
+  }
+
+  /** The answers a new search must not repeat: every rejected note of this marker, plus `justRejected`. */
+  private async rejectedAnswersFor(
+    path: string,
+    marker: Marker,
+    justRejected: readonly string[] = [],
+  ): Promise<string[]> {
+    const notes: Candidate[][] = [];
+    for (const entry of matchHistoryAll(this.history.list(), path, marker.raw, "rejected")) {
+      const file = this.app.vault.getFileByPath(entry.path);
+      const data = file ? await this.readHistoryNote(file) : null;
+      if (data) notes.push(data.candidates);
+    }
+    notes.push(justRejected.map((answer) => ({ answer, sources: [] })));
+    // The note just rejected is in both lists once the cache has caught up.
+    return [...new Set(rejectedAnswers(notes))];
+  }
+
+  /**
+   * The review of Claude's candidates, in a dialog: accept one (edited or not), reject them all, or
+   * search again. Closing the dialog changes nothing.
+   */
+  async review(path: string, marker: Marker, notePath: string): Promise<void> {
+    const key = jobKey(path, marker.raw);
+    if (this.reviewOpen.has(key)) return;
+    this.reviewOpen.add(key);
+    try {
+      const file = this.app.vault.getFileByPath(notePath);
+      if (!file) throw new Error("That history note no longer exists.");
+      const data = await this.readHistoryNote(file);
+      if (!data) throw new Error("That is not a history note Lacuna can read.");
+      if (data.status !== "pending") throw new Error(`That history note is already ${data.status}.`);
+      const p = await this.prepare(path, marker);
+      const around = extractContext(p.text, p.marker, "paragraphPlusMinusOne");
+      const note = { file, id: data.id };
+      const what = p.marker.question || p.marker.kind;
+
+      await new Promise<void>((done) => {
+        const modal = new ReviewModal(
+          this.app,
+          {
+            kind: p.marker.kind,
+            question: p.marker.question,
+            noteId: data.id,
+            resolver: data.resolver,
+            verdict: data.verdict,
+            inline: p.inline,
+            context: splitContext(around, p.claim),
+            candidates: data.candidates,
+            accept: async (answer) => {
+              await this.applyAnswer(p, note, answer, data.verdict);
+              this.queue.remove(key);
+              new Notice(`Lacuna: answer applied for “${what}”.`);
+            },
+            reject: async () => {
+              await this.rejectNote(file);
+              // A finished job outranks the note's status in the sidebar: forget it.
+              this.queue.remove(key);
+              new Notice(`Lacuna: rejected the answers for “${what}”. The marker stays.`);
+            },
+            searchAgain: async () => {
+              await this.rejectNote(file);
+              this.queue.remove(key);
+              this.solve(
+                path,
+                p.marker,
+                data.candidates.map((c) => c.answer),
+              );
+            },
+          },
+          done,
+        );
+        modal.open();
+      });
+    } catch (e) {
+      new Notice(`Lacuna: ${e instanceof Error ? e.message : String(e)}`, 10_000);
+    } finally {
+      this.reviewOpen.delete(key);
     }
   }
 

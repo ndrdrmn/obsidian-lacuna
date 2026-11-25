@@ -47,7 +47,7 @@ At most 3 candidates (setting). `verdict` is used by the `sic` kind.
 
 ## Prompt
 
-Built per kind in `src/prompt.ts`. It states the language rule (answers are written in the language of the note), whether the marker is inline or a block, and, on Retry, the list of rejected answers ("not these").
+Built per kind in `src/prompt.ts`. It states the language rule (answers are written in the language of the note), whether the marker is inline or a block, and, on Retry, the list of rejected answers ("not these"). **Other lacunae in the passage are blanked out as `[…]`** (`blankOtherMarkers`) and the prompt says they are separate questions: sent as `==?…==` they read as questions to answer, and the answers and sources of two lacunae got mixed (seen on 2026-11-25: a candidate for the codename cited a quote about the release date). The history note's "Context sent" block shows the text as it was sent. The prompt also requires every source and quote to support its own candidate, and prefers fewer candidates to an unsupported one.
 
 ## How the plugin runs it (`src/resolvers/claudeCli.ts`, `src/process.ts`)
 

@@ -1,4 +1,4 @@
-import type { Kind } from "./lang/packs";
+import { KINDS, type Kind } from "./lang/packs";
 import { formatAlias, frontmatterLength } from "./marker";
 import type { Candidate, Source, Verdict } from "./resolvers/resolver";
 
@@ -139,15 +139,18 @@ export function buildHistoryNote(i: HistoryNoteInput): string {
 }
 
 /**
- * Once the answer is in the article, say where, under the title: `Answered at [[Windows 95#^lac-122]]`.
- * `link` is built with `generateMarkdownLink`. The note is returned as it is when it has no title.
+ * Once the answer is in the article, say where, under the title:
+ * `Answered at [[Windows 95#^adloc-1|ad loc.]] — “…under the codename Chicago and went on…”`.
+ * `link` is built with `generateMarkdownLink`. The excerpt says which lacuna of a paragraph this was.
+ * The note is returned as it is when it has no title.
  */
-export function addAnsweredAt(noteText: string, link: string): string {
+export function addAnsweredAt(noteText: string, link: string, excerpt = ""): string {
   const off = frontmatterLength(noteText);
   const m = /^# .*$/m.exec(noteText.slice(off));
   if (!m) return noteText;
   const at = off + m.index + m[0].length;
-  return `${noteText.slice(0, at)}\n\nAnswered at ${link}${noteText.slice(at)}`;
+  const quote = excerpt === "" ? "" : ` — “${excerpt}”`;
+  return `${noteText.slice(0, at)}\n\nAnswered at ${link}${quote}${noteText.slice(at)}`;
 }
 
 /** What is known of a history note without reading its body (from the metadata cache). */
@@ -161,6 +164,105 @@ export interface HistoryEntry {
   /** The note the `article` property points to, if it resolves. */
   articlePath: string | null;
   asked: string;
+}
+
+/** Every note of one status that belongs to a marker (same article, same marker text), oldest first. */
+export function matchHistoryAll(
+  entries: readonly HistoryEntry[],
+  articlePath: string,
+  markerRaw: string,
+  status: HistoryStatus,
+): HistoryEntry[] {
+  const wanted = normalizeMarker(markerRaw);
+  return entries
+    .filter((e) => e.status === status && e.articlePath === articlePath && normalizeMarker(e.marker) === wanted)
+    .sort((a, b) => (a.asked < b.asked ? -1 : a.asked > b.asked ? 1 : (a.id ?? 0) - (b.id ?? 0)));
+}
+
+// ---- Reading a note back ---------------------------------------------------
+
+/** The frontmatter (without its fences) and the rest of a note. */
+export function splitFrontmatter(text: string): { yaml: string; body: string } {
+  const m = /^---[ \t]*\r?\n((?:[\s\S]*?\r?\n)?)(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(text);
+  return m ? { yaml: m[1], body: text.slice(m[0].length) } : { yaml: "", body: text };
+}
+
+/** `- [title](url)` with an optional ` — “quote”`: what `sourceLine` writes for a source with a link. */
+const SOURCE_LINE = /^- \[(.*?)\]\((\S*)\)(?: — “(.*)”)?$/;
+
+/**
+ * The candidates of a note body, as `buildHistoryNote` wrote them: a section for each exact
+ * line `## Candidate N`; in it the sources are the trailing lines shaped like `SOURCE_LINE`, after
+ * a blank line, and the answer is everything before. (An answer that itself ends in such a list
+ * after a blank line loses it to the sources: rare, and harmless to review.)
+ */
+export function parseCandidates(body: string): Candidate[] {
+  const sections = body.replace(/\r\n/g, "\n").split(/^## Candidate \d+[ \t]*$/m).slice(1);
+  const out: Candidate[] = [];
+  for (const section of sections) {
+    const lines = section.trim().split("\n");
+    let first = lines.length;
+    while (first > 0 && SOURCE_LINE.test(lines[first - 1])) first--;
+    // Only a list that follows a blank line is a list of sources.
+    const hasSources = first < lines.length && first > 0 && lines[first - 1].trim() === "";
+    const answer = (hasSources ? lines.slice(0, first) : lines).join("\n").trim();
+    if (answer === "") continue;
+    const sources: Source[] = [];
+    if (hasSources) {
+      for (const line of lines.slice(first)) {
+        const m = SOURCE_LINE.exec(line);
+        if (m) sources.push({ title: m[1], url: m[2], ...(m[3] ? { quote: m[3] } : {}) });
+      }
+    }
+    out.push({ answer, sources });
+  }
+  return out;
+}
+
+/** A history note, read back from its file. */
+export interface HistoryData {
+  id: number;
+  status: HistoryStatus;
+  kind: Kind;
+  question: string;
+  /** The marker text, with `\n` line breaks. */
+  marker: string;
+  resolver: string;
+  verdict?: Verdict;
+  candidates: Candidate[];
+}
+
+/** The note's properties (parsed YAML) and body as a `HistoryData`, or null if this is not a Lacuna note. */
+export function toHistoryData(fm: unknown, body: string): HistoryData | null {
+  if (typeof fm !== "object" || fm === null) return null;
+  const f = fm as Record<string, unknown>;
+  if (!isHistoryStatus(f.lacuna)) return null;
+  if (typeof f.id !== "number" || !Number.isInteger(f.id)) return null;
+  if (typeof f.kind !== "string" || !(KINDS as readonly string[]).includes(f.kind)) return null;
+  if (typeof f.marker !== "string" || f.marker === "") return null;
+  const verdict = f.verdict === "confirmed" || f.verdict === "corrected" || f.verdict === "uncertain" ? f.verdict : undefined;
+  return {
+    id: f.id,
+    status: f.lacuna,
+    kind: f.kind as Kind,
+    question: typeof f.question === "string" ? f.question : "",
+    marker: normalizeMarker(f.marker),
+    resolver: typeof f.resolver === "string" ? f.resolver : "",
+    verdict,
+    candidates: parseCandidates(body),
+  };
+}
+
+/**
+ * The answers to tell a search not to repeat, from the candidates of rejected notes, oldest
+ * note first: each on one line and cut short, and only the most recent `max`.
+ */
+export function rejectedAnswers(notes: readonly (readonly Candidate[])[], max = 12, maxLen = 300): string[] {
+  const all = notes.flatMap((candidates) => candidates.map((c) => c.answer.replace(/\s+/g, " ").trim()));
+  return all
+    .filter((a) => a !== "")
+    .slice(-max)
+    .map((a) => (a.length > maxLen ? `${a.slice(0, maxLen - 1).trimEnd()}…` : a));
 }
 
 /**

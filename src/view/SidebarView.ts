@@ -185,12 +185,19 @@ export class SidebarView extends ItemView {
         break;
       case "ready":
         status("answers ready", "lacuna-status-ready");
-        button("Open note", () => void this.plugin.openNote(state.notePath), { cta: true });
+        button("Review", () => void this.plugin.review(path, marker, state.notePath), {
+          cta: true,
+          title: "Read the answers, accept one, edit it, or reject them",
+        });
+        button("Open note", () => void this.plugin.openNote(state.notePath));
         break;
       case "rejected":
         status("rejected", "lacuna-status-rejected");
         button("Open note", () => void this.plugin.openNote(state.notePath));
-        button("Solve again", solve, { disabled: needsQuestion });
+        button("Solve again", solve, {
+          disabled: needsQuestion,
+          title: "Search again, asking Claude not to repeat the rejected answers",
+        });
         answerButton();
         break;
     }

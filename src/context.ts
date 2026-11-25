@@ -32,6 +32,22 @@ function maskMarkers(text: string): string {
   return text.replace(/==\?(?:(?!\r?\n[ \t]*\r?\n)[\s\S])*?==/g, (m) => m.replace(/[^\r\n]/g, "x"));
 }
 
+/** What another lacuna is shown as in a passage sent to a search: a gap that is not the question. */
+export const OTHER_GAP = "[…]";
+
+/**
+ * The passage with the *other* markers blanked out as `[…]`, so that a search is asked about
+ * one gap only. Left as they are, they read as questions to answer, and the answers get mixed up.
+ */
+export function blankOtherMarkers(ctx: ContextResult): ContextResult {
+  const blank = (s: string): string =>
+    s.replace(/==\?(?:(?!\r?\n[ \t]*\r?\n)[\s\S])*?==/g, OTHER_GAP);
+  const before = blank(ctx.text.slice(0, ctx.markerStart));
+  const own = ctx.text.slice(ctx.markerStart, ctx.markerEnd);
+  const after = blank(ctx.text.slice(ctx.markerEnd));
+  return { text: before + own + after, markerStart: before.length, markerEnd: before.length + own.length };
+}
+
 /** Sentence ends (. ! ? …), and the start of a list item, heading or quote on a new line. */
 function sentenceBoundaries(masked: string): Boundary[] {
   const out: Boundary[] = [];

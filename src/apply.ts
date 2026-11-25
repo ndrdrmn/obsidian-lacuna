@@ -1,17 +1,28 @@
 import type { Kind } from "./lang/packs";
-import type { Span } from "./context";
+import { OTHER_GAP, type Span } from "./context";
 import { lineKind } from "./marker";
 
 /**
- * The id of the footnote and of the block anchor of history note number `n`: `lac-122`.
- * A note that already uses it (a passage copied from another article) gets `lac-122-2`, and so on.
+ * The id of the footnote of history note number `n`: `lac-122`. A footnote belongs to one answer.
+ * An article that already uses it (a passage copied from another one) gets `lac-122-2`, and so on.
  */
-export function anchorIdFor(n: number, noteText: string): string {
+export function footnoteIdFor(n: number, noteText: string): string {
   for (let k = 1; k < 1000; k++) {
     const id = k === 1 ? `lac-${n}` : `lac-${n}-${k}`;
     if (!new RegExp(`\\^${id}(?![\\w-])`).test(noteText)) return id;
   }
   throw new Error("Could not find an unused footnote id");
+}
+
+/**
+ * The id of the next block anchor of an article: `adloc-1`, `adloc-2`... An anchor belongs to a
+ * paragraph, which can hold several lacunae, so it is numbered within the article and is not
+ * named after any history note.
+ */
+export function blockAnchorIdFor(noteText: string): string {
+  let max = 0;
+  for (const m of noteText.matchAll(/\^adloc-(\d+)(?![\w-])/g)) max = Math.max(max, Number(m[1]));
+  return `adloc-${max + 1}`;
 }
 
 export type CitationStyle = "footnote" | "inline";
@@ -207,8 +218,10 @@ export interface AcceptInput {
   style: CitationStyle;
   /** The link to the history note, built with `generateMarkdownLink`: labelled `footnoteLabel` or `CITATION_LABEL`, by style. */
   link: string;
-  /** The id of the footnote and of the anchor: see `anchorIdFor`. */
-  id: string;
+  /** The id of the footnote: see `footnoteIdFor`. */
+  footnoteId: string;
+  /** The id of the block anchor, used when the paragraph has none yet: see `blockAnchorIdFor`. */
+  anchorId: string;
   /** What the footnote says the lacuna was about. */
   question: string;
 }
@@ -218,6 +231,8 @@ export interface AcceptPlan {
   edits: Edit[];
   /** The block id of the answer in the text, or null when it has none (a heading). */
   anchor: string | null;
+  /** The answered passage in a few words, to say which of several lacunae of a paragraph this was. */
+  excerpt: string;
 }
 
 /**
@@ -227,7 +242,7 @@ export interface AcceptPlan {
  * one go makes one undo step in the editor.
  */
 export function planAccept(text: string, span: Span, input: AcceptInput): AcceptPlan {
-  const cite = buildCitation(input.style, input.link, input.id, input.question);
+  const cite = buildCitation(input.style, input.link, input.footnoteId, input.question);
   const replacement = buildReplacement({
     kind: input.kind,
     answer: input.answer,
@@ -237,12 +252,63 @@ export function planAccept(text: string, span: Span, input: AcceptInput): Accept
   });
   const edits = [markerEdit(text, span, replacement)];
   const footnote = cite.definition ? footnoteEdit(text, cite.definition) : null;
-  const anchor = planAnchor(text, span, input.id);
+  const anchor = planAnchor(text, span, input.anchorId);
   if (anchor.edit) {
     // The block can end where the note ends. One edit there, not two at the same offset.
     if (footnote && footnote.from === anchor.edit.from) footnote.insert = anchor.edit.insert + footnote.insert;
     else edits.push(anchor.edit);
   }
   if (footnote) edits.push(footnote);
-  return { edits, anchor: anchor.id };
+  const shown =
+    input.kind === "sic" ? (input.verdict === "confirmed" ? "" : `(actually: ${input.answer})`) : input.answer;
+  return { edits, anchor: anchor.id, excerpt: answerExcerpt(text, span, shown) };
+}
+
+/** Markdown that would act in a note that quotes it, made harmless; another lacuna becomes `[…]`. */
+function tidy(s: string): string {
+  return s
+    .replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, "$1") // [[note|label]] -> label
+    .replace(/\[\^[^\]]*\]/g, "") // footnote references
+    .replace(/[ \t]\^[A-Za-z0-9-]+(?=\s|$)/g, "") // block ids
+    .replace(/\[/g, "(")
+    .replace(/\]/g, ")")
+    .replace(/==\?(?:(?!\r?\n[ \t]*\r?\n)[\s\S])*?==/g, OTHER_GAP)
+    .replace(/\s+/g, " ");
+}
+
+/**
+ * The answered passage in a few words: some of the paragraph before the marker, what was put
+ * there (`shown`), and some of what follows. Said in the history note beside the link to the
+ * paragraph, because a paragraph can hold several lacunae and its link cannot tell them apart.
+ */
+export function answerExcerpt(text: string, span: Span, shown: string, side = 45, max = 80): string {
+  let lo = 0;
+  let hi = text.length;
+  const sep = /\r?\n[ \t]*\r?\n/g;
+  let m: RegExpExecArray | null;
+  while ((m = sep.exec(text))) {
+    if (m.index + m[0].length <= span.start) lo = m.index + m[0].length;
+    else if (m.index >= span.end) {
+      hi = m.index;
+      break;
+    }
+  }
+
+  let before = tidy(text.slice(lo, span.start)).replace(/^ /, "");
+  if (before.length > side) {
+    const cut = before.slice(-side);
+    const space = cut.indexOf(" ");
+    before = `…${space >= 0 ? cut.slice(space + 1) : cut}`;
+  }
+  let after = tidy(text.slice(span.end, hi));
+  if (after.length > side) {
+    const cut = after.slice(0, side);
+    const space = cut.lastIndexOf(" ");
+    after = `${space > 0 ? cut.slice(0, space) : cut}…`;
+  }
+  let what = tidy(shown).trim();
+  if (what.length > max) what = `${what.slice(0, max - 1).trimEnd()}…`;
+  // Nothing was put in the text (a claim confirmed): the passage is what stands before the citation.
+  if (what === "") return `${before.trimEnd()}${after}`.trim();
+  return `${before}${what}${after}`.trim();
 }

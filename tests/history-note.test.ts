@@ -190,6 +190,13 @@ describe("addAnsweredAt", () => {
     );
   });
 
+  it("quotes the answered passage when it is given", () => {
+    const out = addAnsweredAt(note, "[[Windows 95#^adloc-1|ad loc.]]", "…under the codename Chicago and went on…");
+    expect(out).toContain(
+      "# Lacuna 7 · why\n\nAnswered at [[Windows 95#^adloc-1|ad loc.]] — “…under the codename Chicago and went on…”\n\n> Context:",
+    );
+  });
+
   it("does not look in the frontmatter, and leaves a note without a title alone", () => {
     const odd = "---\n# comment\n---\ntext\n";
     expect(addAnsweredAt(odd, "[[x]]")).toBe(odd);

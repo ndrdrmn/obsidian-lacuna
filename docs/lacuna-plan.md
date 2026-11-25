@@ -27,17 +27,17 @@ Requirements throughout: plain markdown, private (everything stays local except 
 | D4 | Sidebar scope | Current note by default, with a toggle for the whole vault (grouped by note). |
 | D5 | Kinds | Latin canonical names: `suppl` (supply a missing value), `sic` (verify the claim just before the marker), `fontes` (find sources), `glossa` (explain), `cf` (compare). |
 | D6 | AI context | Setting: sentence / **paragraph (default)** / paragraph ±1 / whole note. The note title is always sent. |
-| D7 | Reject | The marker stays yellow. The history note gets status `rejected` and keeps its candidates. Retry tells the agent "not these". |
+| D7 | Reject | The marker stays yellow. The history note gets status `rejected` and keeps its candidates. Searching again makes a new note and tells the agent "not these". |
 | D8 | Insertion | A `/adloc` command (core Slash commands) inserting `==? ==` with the cursor inside. A hotkey for the same command that wraps a selection. An EditorSuggest on `==?` listing the kinds in the popup language, with the default kind first. A right-click "Ask about this…". When the default kind is None (D23), every insertion method inserts `==?` and opens the keyword popup right away. |
 | D9 | History location | Folder `Apparatus/` by default. Settings: the folder name, and its location (one vault folder, or a subfolder next to the article). The settings tab explains the name in one line and links to https://en.wikipedia.org/wiki/Critical_apparatus. File name: `Lacuna <id> — <article> — <question slug>.md`; every note has a number, kept in a counter in `data.json` and checked against the notes in the vault. The date lives in the properties. |
 | D10 | `sic` correction | The user's sentence is never rewritten. Wrong claim → the marker becomes `(actually: … <citation>)`. Correct claim → the marker becomes just `<citation>`. |
-| D11 | Citation | Setting: footnote (**default**) or inline link. It **always points only to the history note**. Links are built with `app.fileManager.generateMarkdownLink` so renaming or moving the history note keeps them valid. After resolution the plugin reads only the history note's frontmatter, never its body. Footnote ids `[^lac-122]`, from the note's number; the footnote reads `See [[…|Lacuna #122]]: “question”.`. Inline label: **`ad loc.`**, for answers from Claude and from the user alike (`ai-source` was rejected: it would be wrong on an answer the user wrote). The answered block gets an invisible block id (` ^lac-122`) that the history note links back to. |
+| D11 | Citation | Setting: footnote (**default**) or inline link. It **always points only to the history note**. Links are built with `app.fileManager.generateMarkdownLink` so renaming or moving the history note keeps them valid. After resolution the plugin reads only the history note's frontmatter, never its body. Footnote ids `[^lac-122]`, from the note's number; the footnote reads `See [[…|Lacuna #122]]: “question”.`. Inline label: **`ad loc.`**, for answers from Claude and from the user alike (`ai-source` was rejected: it would be wrong on an answer the user wrote). The answered paragraph gets an invisible block id (` ^adloc-1`, numbered within the article, shared by the lacunae of that paragraph) that the history note links back to, as `ad loc.` with an excerpt of the answered sentence. |
 | D12 | Language | Answers are written in the language of the note. |
 | D13 | Audience | For the user first, built to community-store standards (English UI, README). Installed manually or through BRAT. |
 | D14 | Platform | Desktop only (`isDesktopOnly: true`). |
 | D15 | Resolvers | Claude CLI + "Answer myself" (offline), behind a `Resolver` interface. An answer the user typed is **applied at once** (there is nothing to review); it still leaves a history note, which goes straight to `resolved`. |
 | D16 | Queue | Background queue, one job at a time: `queued → searching → ready` (or `failed`). |
-| D17 | Review UI | A sidebar card expands in place. Candidates are radio options with their sources, plus an editable answer field and Accept / Reject / Retry… / Open note. |
+| D17 | Review UI | The sidebar item shows Review; it opens a dialog (the sidebar is too narrow for long answers) with the marker's paragraph and neighbours, each candidate with its sources, Edit / Accept, and Reject / Search again. |
 | D18 | Solve all | No. One by one only. |
 | D19 | Model | `sonnet` by default (setting). |
 | D20 | Name ✅ | **Lacuna**, plugin id `lacuna`. Command `/adloc`. Frontmatter status key `lacuna:`. |
@@ -96,9 +96,6 @@ August 24, 1995
 
 ## Candidate 2
 …
-
-## Rejected attempts
-…
 ```
 
 **Pending note ↔ marker matching:** by the `article` link plus the exact `marker` text. If no marker matches, the item is shown as an orphan with *Discard*.
@@ -112,7 +109,7 @@ August 24, 1995
 **Citation forms**
 - Footnote (default): `[^lac-122]`, with `[^lac-122]: See [[Apparatus/…|Lacuna #122]]: “question”.` appended at the end of the note. The id is the note's number, and is made unique in the article.
 - Inline: ` [ad loc.](link)` or `[[link|ad loc.]]`, following the vault's link setting.
-- Both: the answered block gets a block id ` ^lac-122`, and the history note links back to it.
+- Both: the answered paragraph gets a block id ` ^adloc-1` (not named after the note: a paragraph can hold several lacunae), and the history note links back to it.
 
 **Applying a replacement:** if the article is open in an editor, use one `editor.transaction` so the change (answer, footnote and anchor) is a single undo step. Otherwise use `app.vault.process`. In both cases the marker's position is found again in the *current* text at accept time, because the user may have edited the article during the search.
 
@@ -192,7 +189,7 @@ test-vault/               sample articles; plugin built into .obsidian/plugins/l
 3. **Insertion:** `/adloc` (slash + hotkey + wrapping a selection), the EditorSuggest and the context-menu entry, including the behaviour when the default kind is None.
 4. **Listing:** the scanner and the sidebar list, current note and vault toggle. Clicking an item jumps to the marker.
 5. **Solving:** `history.ts` (`kind` + `alias`), the queue and both resolvers. The pending note gets written.
-6. **Review and apply:** the review card (Accept/Reject/Retry/Open note), the replacement and citation, and the history-note status updates.
+6. **Review and apply** (done): the review dialog (Accept, Edit, Reject, Search again), the replacement and citation, and the history-note status updates.
 7. **Settings tab and README:**
    - Apparatus folder name and location, with the explanation and Wikipedia link.
    - Recognised languages, popup language, and the Idiolect editor with live collision messages.
