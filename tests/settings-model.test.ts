@@ -4,6 +4,7 @@ import {
   defaultKindOrNull,
   isValidModel,
   normalizeSettings,
+  readLastHistoryId,
   setPopupLang,
   toggleLang,
   type LacunaSettings,
@@ -84,6 +85,15 @@ describe("normalizeSettings", () => {
     expect(normalizeSettings({ citationStyle: "inline" }).citationStyle).toBe("inline");
     expect(normalizeSettings({ citationStyle: "endnote" }).citationStyle).toBe("footnote");
     expect(normalizeSettings({ citationStyle: 1 }).citationStyle).toBe("footnote");
+  });
+
+  it("reads the counter of history notes that is stored beside the settings", () => {
+    expect(readLastHistoryId({ lastHistoryId: 122 })).toBe(122);
+    for (const bad of [undefined, null, {}, { lastHistoryId: "9" }, { lastHistoryId: -1 }, { lastHistoryId: 1.5 }]) {
+      expect(readLastHistoryId(bad)).toBe(0);
+    }
+    // ...and the settings do not take it for one of theirs.
+    expect(normalizeSettings({ lastHistoryId: 5 })).toEqual(DEFAULT_SETTINGS);
   });
 
   it("keeps valid resolver settings and rejects invalid ones", () => {

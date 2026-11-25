@@ -17,6 +17,7 @@ The history note is created **before** the user decides, with status `pending` a
 ```markdown
 ---
 lacuna: pending          # pending | resolved | rejected
+id: 122                  # the number of the note, unique in the vault
 kind: suppl              # always the Latin canonical name
 alias: "integra (it)"    # only if a non-Latin keyword was typed
 question: "exact release date"
@@ -25,11 +26,14 @@ marker: "==?integra: exact release date=="   # JSON-quoted: a multi-line marker 
 asked: 2026-11-18T16:40
 resolver: claude-cli/sonnet
 verdict: confirmed       # sic only: confirmed | corrected | uncertain
+at:                      # set on accept: link to the answered passage, "[[windows-95#^lac-122]]"
 answer:                  # set on accept
 answered:
 ---
-# exact release date
-> Context sent: "…paragraph…"
+# Lacuna 122 · exact release date
+Answered at [[windows-95#^lac-122]]     <- added on accept
+
+> Context sent to the search: "…paragraph…"     <- "Context:" for Answer myself
 
 ## Candidate 1
 August 24, 1995
@@ -43,18 +47,21 @@ August 24, 1995
 ```
 
 - **Location:** folder `Apparatus/` by default. Settings: the folder name, and its location (one vault folder, or a subfolder next to the article).
-- **File name:** `YYYY-MM-DD <article> — <question slug>.md`.
+- **File name:** `Lacuna <id> — <article> — <question slug>.md`. The date is in the properties (`asked`, `answered`), not in the name.
+- **The number** is one more than the larger of two values: `lastHistoryId`, kept in `data.json` beside the settings, and the highest `id` among the history notes in the metadata cache (`nextHistoryId`, pure). The stored value saves reading anything; the cache guards against a `data.json` that was reset or synced from another device. It is reserved before any `await`, so two notes made at once cannot share it.
+- **The context is always kept**, as a block quote: the passage chosen in the settings, labelled "Context sent to the search" for Claude and "Context" for Answer myself, where nothing was sent.
 - **Pending note ↔ marker matching:** by the `article` link plus the exact `marker` text. If no marker matches, the item is shown as an orphan with *Discard*.
 - **A marker can span lines**, so `marker:` must be written as a double-quoted YAML string with `\n` escapes (JSON-style quoting), never as a plain scalar. Compare with line endings normalised: the editor uses `\n` while the file may use `\r\n`.
 - **Reject:** the marker stays yellow, the note gets status `rejected` and keeps its candidates. Retry tells the agent "not these".
 
 ## Citation
 
-- **Footnote (default):** `[^lac-k3f9]`, with `[^lac-k3f9]: [[Apparatus/…|<label>]]` appended at the end of the note. The id is random and checked for uniqueness in that note.
-- **Inline:** ` [<label>](link)` or `[[link|<label>]]`, following the vault's link setting.
+- **Footnote (default):** `[^lac-122]`, with `[^lac-122]: See [[Apparatus/…|Lacuna #122]]: “the question”.` appended at the end of the note. The id comes from the number of the history note (`anchorIdFor`); if the article already uses it, it becomes `lac-122-2`. The question is cut at about 80 characters.
+- **Inline:** ` [ad loc.](link)` or `[[link|ad loc.]]`, following the vault's link setting.
 - The citation **always points only to the history note**. Links are built with `app.fileManager.generateMarkdownLink` so renaming or moving the history note keeps them valid.
 - After resolution the plugin reads only the history note's frontmatter, never its body.
-- The label is `ad loc.` (`CITATION_LABEL` in `src/apply.ts`), whoever wrote the answer.
+- The inline label is `ad loc.` (`CITATION_LABEL` in `src/apply.ts`), whoever wrote the answer. A footnote says `Lacuna #N` instead, because in the footnote list "ad loc." alone tells the reader nothing.
+- **Link back:** the answered block gets an invisible anchor, a block id such as ` ^lac-122` (`planAnchor`). In a paragraph or a list item it is at the end of the last line; a table or a quote takes it on a line of its own after a blank line; a block that already has an id keeps it; a heading takes none, and the link goes to the article only. The history note records the link in `at` and under its title ("Answered at"). Obsidian keeps both links valid when either note is renamed.
 
 ## Applying a replacement
 
@@ -94,7 +101,7 @@ A sidebar card expands in place. Candidates are radio options with their sources
 
 1. **Solve** on a sidebar item puts a job in the queue (`src/queue.ts`), one job at a time: `queued → searching → ready` (or `failed`). Asking again for a marker that is queued or running does nothing; Cancel removes the job and stops the process.
 2. When the job runs (`main.ts`, `runSolve`): the note's current text is read (including unsaved edits), the marker is **found again** in it (it may have moved), the context is cut (`context.ts`), the prompt is built (`prompt.ts`), and the resolver is called.
-3. The answers are written to a **pending history note** (`history-note.ts` builds the text, `history.ts` writes it): `Apparatus/YYYY-MM-DD <article> — <question>.md`, or a folder of that name next to the article, per the settings. A name that is taken gets a number; nothing is overwritten.
+3. The answers are written to a **pending history note** (`history-note.ts` builds the text, `history.ts` writes it): `Apparatus/Lacuna <id> — <article> — <question>.md`, or a folder of that name next to the article, per the settings. Nothing is overwritten.
 4. The sidebar then shows "answers ready" and **Open note** (the review card comes with step 6). Which history note belongs to which marker is decided from the metadata cache alone, by the `article` link plus the exact `marker` text, so it survives a restart of Obsidian (`matchHistory`). A job in this session takes precedence over what the vault says (`status.ts`).
 5. A notice announces the end of every search, so the sidebar does not have to be open.
 
@@ -107,7 +114,7 @@ The plugin never reads the vault from the resolver's side: the only thing that l
 The offline resolver (`src/resolvers/manual.ts`): a dialog where the user types the answer, with an optional source. It is behind the same `Resolver` interface and writes the same history note (`resolver: manual`, one candidate), but **the answer is applied at once**: it is the user's own text, so there is nothing to review. `answerMyself` in `main.ts` writes the note, calls `acceptAnswer`, and the note ends up `resolved`. If applying fails (the marker was deleted meanwhile), the note stays `pending` and a message says so; the answer is not lost.
 
 - It **does not go through the queue**, which runs one job at a time and must not be held up by a dialog.
-- **Nothing is sent anywhere**, so the note has no "Context sent" block, and the dialog can show more of the note than a search would get: the marker's paragraph and the ones before and after it (`splitContext`, pure). For `sic` the claim is underlined in it.
+- **Nothing is sent anywhere**, so the note's context block is labelled "Context" and not "Context sent to the search", and the dialog can show more of the note than a search would get: the marker's paragraph and the ones before and after it (`splitContext`, pure). For `sic` the claim is underlined in it.
 - For `sic` the dialog asks whether the claim is right or wrong: a confirmed claim needs no text (only the citation is added), a wrong one needs the correction.
 - **The source is free text or a link.** A link (`http`/`https`) is written in the note as `- [host](url)`; anything else (a book, "from memory") as a plain line `- text`. `Source.url` is therefore optional.
 - **An answer cannot contain a heading** (a line starting with `#`, up to 3 spaces of indent): the review step finds candidates by their headings. `validateManualAnswer` refuses it with a message. It is pure and tested.

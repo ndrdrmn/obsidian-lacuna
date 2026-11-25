@@ -4,6 +4,7 @@ import { itemState } from "../src/status";
 
 const entry = (status: HistoryEntry["status"]): HistoryEntry => ({
   path: "Apparatus/n.md",
+  id: 1,
   status,
   marker: "==?x==",
   articlePath: "a.md",

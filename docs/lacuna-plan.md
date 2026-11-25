@@ -29,9 +29,9 @@ Requirements throughout: plain markdown, private (everything stays local except 
 | D6 | AI context | Setting: sentence / **paragraph (default)** / paragraph ±1 / whole note. The note title is always sent. |
 | D7 | Reject | The marker stays yellow. The history note gets status `rejected` and keeps its candidates. Retry tells the agent "not these". |
 | D8 | Insertion | A `/adloc` command (core Slash commands) inserting `==? ==` with the cursor inside. A hotkey for the same command that wraps a selection. An EditorSuggest on `==?` listing the kinds in the popup language, with the default kind first. A right-click "Ask about this…". When the default kind is None (D23), every insertion method inserts `==?` and opens the keyword popup right away. |
-| D9 | History location | Folder `Apparatus/` by default. Settings: the folder name, and its location (one vault folder, or a subfolder next to the article). The settings tab explains the name in one line and links to https://en.wikipedia.org/wiki/Critical_apparatus. File name: `YYYY-MM-DD <article> — <question slug>.md`. |
+| D9 | History location | Folder `Apparatus/` by default. Settings: the folder name, and its location (one vault folder, or a subfolder next to the article). The settings tab explains the name in one line and links to https://en.wikipedia.org/wiki/Critical_apparatus. File name: `Lacuna <id> — <article> — <question slug>.md`; every note has a number, kept in a counter in `data.json` and checked against the notes in the vault. The date lives in the properties. |
 | D10 | `sic` correction | The user's sentence is never rewritten. Wrong claim → the marker becomes `(actually: … <citation>)`. Correct claim → the marker becomes just `<citation>`. |
-| D11 | Citation | Setting: footnote (**default**) or inline link. It **always points only to the history note**. Links are built with `app.fileManager.generateMarkdownLink` so renaming or moving the history note keeps them valid. After resolution the plugin reads only the history note's frontmatter, never its body. Footnote ids `[^lac-xxxx]`. **Label: `ad loc.`**, for answers from Claude and from the user alike (`ai-source` was rejected: it would be wrong on an answer the user wrote). |
+| D11 | Citation | Setting: footnote (**default**) or inline link. It **always points only to the history note**. Links are built with `app.fileManager.generateMarkdownLink` so renaming or moving the history note keeps them valid. After resolution the plugin reads only the history note's frontmatter, never its body. Footnote ids `[^lac-122]`, from the note's number; the footnote reads `See [[…|Lacuna #122]]: “question”.`. Inline label: **`ad loc.`**, for answers from Claude and from the user alike (`ai-source` was rejected: it would be wrong on an answer the user wrote). The answered block gets an invisible block id (` ^lac-122`) that the history note links back to. |
 | D12 | Language | Answers are written in the language of the note. |
 | D13 | Audience | For the user first, built to community-store standards (English UI, README). Installed manually or through BRAT. |
 | D14 | Platform | Desktop only (`isDesktopOnly: true`). |
@@ -75,6 +75,7 @@ The history note is created **before** the user decides, with status `pending` a
 ```markdown
 ---
 lacuna: pending          # pending | resolved | rejected
+id: 122                  # the number of the note
 kind: suppl              # always the Latin canonical name
 alias: integra (it)      # only if a non-Latin keyword was typed
 question: exact release date
@@ -82,11 +83,12 @@ article: "[[windows-95]]"      # Obsidian updates this on rename
 marker: "==?integra: exact release date=="
 asked: 2026-11-18T16:40
 resolver: claude-cli/sonnet
+at:                      # set on accept: link to the answered passage
 answer:                  # set on accept
 answered:
 ---
-# exact release date
-> Context sent: "…paragraph…"
+# Lacuna 122 · exact release date
+> Context sent to the search: "…paragraph…"     ("Context:" for Answer myself)
 
 ## Candidate 1
 August 24, 1995
@@ -108,10 +110,11 @@ August 24, 1995
 - `glossa` / `cf`: the full text `<cite>`. A table or multi-paragraph answer is only allowed when the marker sits alone on its line; the prompt tells the agent whether the marker is inline or a block.
 
 **Citation forms**
-- Footnote (default): `[^lac-k3f9]`, with `[^lac-k3f9]: [[Apparatus/…|<label>]]` appended at the end of the note. The id is random and checked for uniqueness in that note.
-- Inline: ` [<label>](link)` or `[[link|<label>]]`, following the vault's link setting.
+- Footnote (default): `[^lac-122]`, with `[^lac-122]: See [[Apparatus/…|Lacuna #122]]: “question”.` appended at the end of the note. The id is the note's number, and is made unique in the article.
+- Inline: ` [ad loc.](link)` or `[[link|ad loc.]]`, following the vault's link setting.
+- Both: the answered block gets a block id ` ^lac-122`, and the history note links back to it.
 
-**Applying a replacement:** if the article is open in an editor, use `editor.replaceRange` so the change is undoable. Otherwise use `app.vault.process`. In both cases the marker's position is found again in the *current* text at accept time, because the user may have edited the article during the search.
+**Applying a replacement:** if the article is open in an editor, use one `editor.transaction` so the change (answer, footnote and anchor) is a single undo step. Otherwise use `app.vault.process`. In both cases the marker's position is found again in the *current* text at accept time, because the user may have edited the article during the search.
 
 ### 3b. Keywords and language packs
 

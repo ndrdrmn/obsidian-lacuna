@@ -1,5 +1,5 @@
 import type { Kind } from "./lang/packs";
-import { formatAlias } from "./marker";
+import { formatAlias, frontmatterLength } from "./marker";
 import type { Candidate, Source, Verdict } from "./resolvers/resolver";
 
 export type HistoryStatus = "pending" | "resolved" | "rejected";
@@ -9,6 +9,8 @@ export function isHistoryStatus(v: unknown): v is HistoryStatus {
 }
 
 export interface HistoryNoteInput {
+  /** The number of the note, unique in the vault: see `nextHistoryId`. */
+  id: number;
   kind: Kind;
   alias?: { word: string; packId: string };
   /** The first line of the note, and the basis of its file name. */
@@ -21,9 +23,18 @@ export interface HistoryNoteInput {
   asked: Date;
   resolver: string;
   verdict?: Verdict;
-  /** The text that was sent to the search, marker included. Empty when nothing was sent. */
+  /** The passage around the marker, marker included, as the search got it or as it stood when asked. */
   context: string;
+  /** True when `context` was sent to a search; false for "Answer myself", where nothing leaves the machine. */
+  contextSent: boolean;
   candidates: Candidate[];
+}
+
+/** The number for the next history note: one more than the largest known, stored or in the vault. */
+export function nextHistoryId(stored: number, entries: readonly { id: number | null }[]): number {
+  let max = Number.isFinite(stored) ? Math.max(0, Math.floor(stored)) : 0;
+  for (const e of entries) if (e.id !== null && e.id > max) max = e.id;
+  return max + 1;
 }
 
 const pad = (n: number): string => String(n).padStart(2, "0");
@@ -59,10 +70,10 @@ function sanitize(text: string, max: number): string {
   return (lastSpace > max / 2 ? cut.slice(0, lastSpace) : cut).replace(/[. ]+$/, "");
 }
 
-/** `2026-11-20 Windows 95 — exact release date` (without the extension). */
-export function historyFileName(date: Date, article: string, title: string): string {
+/** `Lacuna 122 — Windows 95 — exact release date` (without the extension). The date is in the properties. */
+export function historyFileName(id: number, article: string, title: string): string {
   const slug = sanitize(title, 60) || "lacuna";
-  return `${formatLocalDate(date)} ${sanitize(article, 40) || "note"} — ${slug}`;
+  return `Lacuna ${id} — ${sanitize(article, 40) || "note"} — ${slug}`;
 }
 
 /** A double-quoted YAML scalar. JSON strings are valid YAML, line breaks included. */
@@ -97,6 +108,7 @@ export function buildHistoryNote(i: HistoryNoteInput): string {
   const front = [
     "---",
     "lacuna: pending",
+    `id: ${i.id}`,
     `kind: ${i.kind}`,
     ...(i.alias ? [`alias: ${yaml(formatAlias(i.alias))}`] : []),
     `question: ${yaml(i.question)}`,
@@ -110,10 +122,10 @@ export function buildHistoryNote(i: HistoryNoteInput): string {
     "---",
   ].join("\n");
 
-  const parts = [front, `# ${i.title}`];
-  // "Answer myself" sends nothing anywhere, so it has no context to show.
+  const parts = [front, `# Lacuna ${i.id} · ${i.title}`];
   if (i.context.trim() !== "") {
-    parts.push(`> Context sent to the search:\n>\n${quoteBlock(normalizeMarker(i.context))}`);
+    const what = i.contextSent ? "Context sent to the search:" : "Context:";
+    parts.push(`> ${what}\n>\n${quoteBlock(normalizeMarker(i.context))}`);
   }
   i.candidates.forEach((c, n) => {
     const section = [`## Candidate ${n + 1}`, c.answer.trim()];
@@ -123,9 +135,23 @@ export function buildHistoryNote(i: HistoryNoteInput): string {
   return `${parts.join("\n\n")}\n`;
 }
 
+/**
+ * Once the answer is in the article, say where, under the title: `Answered at [[Windows 95#^lac-122]]`.
+ * `link` is built with `generateMarkdownLink`. The note is returned as it is when it has no title.
+ */
+export function addAnsweredAt(noteText: string, link: string): string {
+  const off = frontmatterLength(noteText);
+  const m = /^# .*$/m.exec(noteText.slice(off));
+  if (!m) return noteText;
+  const at = off + m.index + m[0].length;
+  return `${noteText.slice(0, at)}\n\nAnswered at ${link}${noteText.slice(at)}`;
+}
+
 /** What is known of a history note without reading its body (from the metadata cache). */
 export interface HistoryEntry {
   path: string;
+  /** The number in the `id` property. */
+  id: number | null;
   status: HistoryStatus;
   /** The `marker` property. */
   marker: string;

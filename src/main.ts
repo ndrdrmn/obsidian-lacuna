@@ -21,6 +21,7 @@ import {
   DEFAULT_SETTINGS,
   defaultKindOrNull,
   normalizeSettings,
+  readLastHistoryId,
   type LacunaSettings,
 } from "./settings-model";
 import { itemState, type ItemState } from "./status";
@@ -56,6 +57,8 @@ export default class LacunaPlugin extends Plugin {
   /** What was typed in a dialog that was closed without saving, until Obsidian restarts. */
   private readonly manualDrafts = new Map<string, ManualDraft>();
   private aliasMap: Map<string, AliasEntry> | null = null;
+  /** The number of the last history note made. Kept in `data.json`, next to the settings. */
+  private lastHistoryId = 0;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -64,7 +67,13 @@ export default class LacunaPlugin extends Plugin {
       parseOptions: () => this.parseOptions(),
       isExcluded: (path) => isHistoryPath(path, this.settings.historyFolder),
     });
-    this.history = new HistoryStore(this.app, () => this.settings);
+    this.history = new HistoryStore(this.app, () => this.settings, {
+      get: () => this.lastHistoryId,
+      set: (n) => {
+        this.lastHistoryId = n; // at once: saving is asynchronous
+        return this.saveSettings();
+      },
+    });
     this.resolver = new ClaudeCliResolver(() => ({
       executable: this.settings.claudePath,
       model: this.settings.model,
@@ -144,11 +153,14 @@ export default class LacunaPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = normalizeSettings(await this.loadData());
+    const raw: unknown = await this.loadData();
+    this.settings = normalizeSettings(raw);
+    this.lastHistoryId = readLastHistoryId(raw);
   }
 
+  /** The settings and the counter of history notes go in the same file. */
   async saveSettings(): Promise<void> {
-    await this.saveData(this.settings);
+    await this.saveData({ ...this.settings, lastHistoryId: this.lastHistoryId });
   }
 
   /** Save, and make everything that depends on the settings (keywords, default kind, folder) catch up. */
@@ -214,18 +226,25 @@ export default class LacunaPlugin extends Plugin {
     };
   }
 
+  /** What a marker is about, in a few words: the question, or for a bare `sic` the claim. */
+  private titleOf(p: Prepared): string {
+    return p.marker.question || p.claim || p.marker.kind;
+  }
+
   /** Write the pending history note. `sent` is false when nothing left the machine. */
-  private async record(p: Prepared, result: SolveResult, sent: boolean): Promise<TFile> {
+  private async record(p: Prepared, result: SolveResult, sent: boolean): Promise<{ file: TFile; id: number }> {
     return this.history.create(p.file, {
       kind: p.marker.kind,
       alias: p.marker.alias,
-      title: p.marker.question || p.claim || p.marker.kind,
+      title: this.titleOf(p),
       question: p.marker.question,
       marker: p.marker.raw,
       asked: new Date(),
       resolver: result.resolver,
       verdict: p.marker.kind === "sic" ? result.verdict : undefined,
-      context: sent ? p.context.text : "",
+      // The passage is kept in every note, so that it shows what the marker was about.
+      context: p.context.text,
+      contextSent: sent,
       candidates: result.candidates,
     });
   }
@@ -250,7 +269,7 @@ export default class LacunaPlugin extends Plugin {
       signal,
     );
     if (signal.aborted) throw new Error("Cancelled");
-    return (await this.record(p, result, true)).path;
+    return (await this.record(p, result, true)).file.path;
   }
 
   /**
@@ -287,7 +306,9 @@ export default class LacunaPlugin extends Plugin {
           { app: this.app, parseOptions: this.parseOptions(), citationStyle: this.settings.citationStyle },
           {
             article: p.file,
-            historyNote: note,
+            historyNote: note.file,
+            noteId: note.id,
+            question: this.titleOf(p),
             kind: p.marker.kind,
             markerRaw: p.marker.raw,
             markerStart: p.marker.start,

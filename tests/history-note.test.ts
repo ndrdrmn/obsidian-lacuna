@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  addAnsweredAt,
   buildHistoryNote,
   formatLocalDateTime,
   historyFileName,
   isHistoryStatus,
   jobKey,
   matchHistory,
+  nextHistoryId,
   normalizeMarker,
   type HistoryEntry,
   type HistoryNoteInput,
@@ -15,6 +17,7 @@ const asked = new Date(2026, 10, 20, 16, 40);
 
 function input(over: Partial<HistoryNoteInput> = {}): HistoryNoteInput {
   return {
+    id: 122,
     kind: "suppl",
     title: "exact release date",
     question: "exact release date",
@@ -23,6 +26,7 @@ function input(over: Partial<HistoryNoteInput> = {}): HistoryNoteInput {
     asked,
     resolver: "claude-cli/sonnet",
     context: "Windows 95 was released on ==?suppl: exact release date== by Microsoft.",
+    contextSent: true,
     candidates: [
       {
         answer: "August 24, 1995",
@@ -47,7 +51,7 @@ describe("buildHistoryNote", () => {
   const note = buildHistoryNote(input());
 
   it("starts with the frontmatter of a pending note", () => {
-    expect(note.startsWith("---\nlacuna: pending\nkind: suppl\n")).toBe(true);
+    expect(note.startsWith("---\nlacuna: pending\nid: 122\nkind: suppl\n")).toBe(true);
     expect(front(note, "question")).toBe("exact release date");
     expect(front(note, "article")).toBe("[[Windows 95]]");
     expect(front(note, "marker")).toBe("==?suppl: exact release date==");
@@ -81,17 +85,23 @@ describe("buildHistoryNote", () => {
   });
 
   it("has a title, and the context sent as a block quote", () => {
-    expect(note).toContain("\n# exact release date\n");
+    expect(note).toContain("\n# Lacuna 122 · exact release date\n");
     expect(note).toContain("> Context sent to the search:\n>\n> Windows 95 was released on ==?suppl: exact release date== by Microsoft.");
     const multi = buildHistoryNote(input({ context: "one\n\ntwo" }));
     expect(multi).toContain("> one\n>\n> two");
   });
 
-  it("has no 'context sent' block when nothing was sent (Answer myself)", () => {
-    const n = buildHistoryNote(input({ resolver: "manual", context: "" }));
+  it("labels the context 'Context', not 'sent', when nothing was sent (Answer myself)", () => {
+    const n = buildHistoryNote(input({ resolver: "manual", contextSent: false }));
     expect(n).not.toContain("Context sent");
+    expect(n).toContain("> Context:\n>\n> Windows 95 was released on");
     expect(front(n, "resolver")).toBe("manual");
-    expect(n).toContain("# exact release date\n\n## Candidate 1\n");
+  });
+
+  it("has no context block when there is no context", () => {
+    const n = buildHistoryNote(input({ context: " \n" }));
+    expect(n).not.toContain("Context");
+    expect(n).toContain("# Lacuna 122 · exact release date\n\n## Candidate 1\n");
   });
 
   it("lists the candidates with their sources", () => {
@@ -120,25 +130,63 @@ describe("buildHistoryNote", () => {
 });
 
 describe("historyFileName", () => {
-  it("follows 'YYYY-MM-DD article — question'", () => {
-    expect(historyFileName(asked, "Windows 95", "exact release date")).toBe(
-      "2026-11-20 Windows 95 — exact release date",
+  it("follows 'Lacuna N — article — question', with no date", () => {
+    expect(historyFileName(122, "Windows 95", "exact release date")).toBe(
+      "Lacuna 122 — Windows 95 — exact release date",
     );
   });
 
   it("drops characters that cannot be in a file name or break a link", () => {
-    expect(historyFileName(asked, "a/b", 'who? "why": #1 [x] ^y')).toBe("2026-11-20 a b — who why 1 x y");
+    expect(historyFileName(1, "a/b", 'who? "why": #1 [x] ^y')).toBe("Lacuna 1 — a b — who why 1 x y");
   });
 
   it("cuts a long question at a word", () => {
-    const name = historyFileName(asked, "n", "word ".repeat(40));
+    const name = historyFileName(1, "n", "word ".repeat(40));
     expect(name.length).toBeLessThan(90);
     expect(name.endsWith("word")).toBe(true);
   });
 
   it("never ends with a dot or a space, and copes with empty parts", () => {
-    expect(historyFileName(asked, "n", "what...")).toBe("2026-11-20 n — what");
-    expect(historyFileName(asked, "", "")).toBe("2026-11-20 note — lacuna");
+    expect(historyFileName(3, "n", "what...")).toBe("Lacuna 3 — n — what");
+    expect(historyFileName(3, "", "")).toBe("Lacuna 3 — note — lacuna");
+  });
+});
+
+describe("nextHistoryId", () => {
+  const e = (id: number | null) => ({ id });
+
+  it("starts at 1", () => {
+    expect(nextHistoryId(0, [])).toBe(1);
+  });
+
+  it("follows the stored counter", () => {
+    expect(nextHistoryId(121, [e(5), e(null)])).toBe(122);
+  });
+
+  it("follows the notes in the vault when the stored counter is behind (a reset or synced data.json)", () => {
+    expect(nextHistoryId(3, [e(7), e(120), e(9)])).toBe(121);
+    expect(nextHistoryId(0, [e(4)])).toBe(5);
+  });
+
+  it("ignores a damaged counter", () => {
+    expect(nextHistoryId(NaN, [e(2)])).toBe(3);
+    expect(nextHistoryId(-5, [])).toBe(1);
+  });
+});
+
+describe("addAnsweredAt", () => {
+  const note =
+    "---\nlacuna: resolved\n---\n\n# Lacuna 7 · why\n\n> Context:\n>\n> # not the title\n\n## Candidate 1\nx\n";
+
+  it("puts the link under the title", () => {
+    expect(addAnsweredAt(note, "[[Windows 95#^lac-7]]")).toBe(
+      "---\nlacuna: resolved\n---\n\n# Lacuna 7 · why\n\nAnswered at [[Windows 95#^lac-7]]\n\n> Context:\n>\n> # not the title\n\n## Candidate 1\nx\n",
+    );
+  });
+
+  it("does not look in the frontmatter, and leaves a note without a title alone", () => {
+    const odd = "---\n# comment\n---\ntext\n";
+    expect(addAnsweredAt(odd, "[[x]]")).toBe(odd);
   });
 });
 
@@ -162,6 +210,7 @@ describe("small helpers", () => {
 describe("matchHistory", () => {
   const entry = (over: Partial<HistoryEntry>): HistoryEntry => ({
     path: "Apparatus/a.md",
+    id: 1,
     status: "pending",
     marker: "==?suppl: x==",
     articlePath: "Windows 95.md",

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { extractContext, extractClaim } from "../src/context";
 import { parseMarkers } from "../src/marker";
 import { buildAliasMap } from "../src/lang/keywords";
+import { LATIN_ID } from "../src/lang/packs";
 import { parseSource, splitContext, validateManualAnswer } from "../src/resolvers/manual-answer";
 
 describe("validateManualAnswer", () => {
@@ -89,7 +90,7 @@ describe("parseSource", () => {
 });
 
 describe("splitContext", () => {
-  const opts = { aliasMap: buildAliasMap(["latin", "en"], {}), defaultKind: "suppl" as const };
+  const opts = { aliasMap: buildAliasMap([LATIN_ID, "en"], {}), defaultKind: "suppl" as const };
 
   function pieces(text: string, claimOf = false) {
     const marker = parseMarkers(text, opts)[0];

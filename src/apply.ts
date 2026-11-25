@@ -1,14 +1,15 @@
 import type { Kind } from "./lang/packs";
 import type { Span } from "./context";
+import { lineKind } from "./marker";
 
-const ID_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
-
-/** A fresh footnote id such as `lac-k3f9`, not yet used in `noteText`. */
-export function newFootnoteId(noteText: string, rng: () => number = Math.random): string {
-  for (let attempt = 0; attempt < 1000; attempt++) {
-    let id = "lac-";
-    for (let i = 0; i < 4; i++) id += ID_CHARS[Math.floor(rng() * ID_CHARS.length)];
-    if (!noteText.includes(`[^${id}]`)) return id;
+/**
+ * The id of the footnote and of the block anchor of history note number `n`: `lac-122`.
+ * A note that already uses it (a passage copied from another article) gets `lac-122-2`, and so on.
+ */
+export function anchorIdFor(n: number, noteText: string): string {
+  for (let k = 1; k < 1000; k++) {
+    const id = k === 1 ? `lac-${n}` : `lac-${n}-${k}`;
+    if (!new RegExp(`\\^${id}(?![\\w-])`).test(noteText)) return id;
   }
   throw new Error("Could not find an unused footnote id");
 }
@@ -22,15 +23,24 @@ export interface Citation {
   definition?: string;
 }
 
+/** What the footnote says about the question, on one line and not too long. */
+function footnoteQuestion(question: string): string {
+  const one = question.replace(/\s+/g, " ").replace(/\[/g, "(").replace(/\]/g, ")").trim();
+  if (one === "") return ".";
+  const short = one.length > 80 ? `${one.slice(0, 79).trimEnd()}…` : one;
+  return `: “${short}”.`;
+}
+
 /**
  * `link` is the link to the history note, already built with
  * `app.fileManager.generateMarkdownLink` so that it survives renames.
- * `id` is required for the footnote style.
+ * `id` and `question` are for the footnote style, whose definition reads
+ * `See <link>: “question”.`
  */
-export function buildCitation(style: CitationStyle, link: string, id?: string): Citation {
+export function buildCitation(style: CitationStyle, link: string, id?: string, question = ""): Citation {
   if (style === "footnote") {
     if (!id) throw new Error("A footnote citation needs an id");
-    return { inline: `[^${id}]`, definition: `[^${id}]: ${link}` };
+    return { inline: `[^${id}]`, definition: `[^${id}]: See ${link}${footnoteQuestion(question)}` };
   }
   return { inline: ` ${link}` };
 }
@@ -121,6 +131,73 @@ export function appendFootnoteDefinition(noteText: string, definition: string): 
 /** The text of the link to a history note: what the reader sees where the marker was. */
 export const CITATION_LABEL = "ad loc.";
 
+/** What the reader sees in a footnote: `Lacuna #122`. */
+export function footnoteLabel(noteId: number): string {
+  return `Lacuna #${noteId}`;
+}
+
+export interface Anchor {
+  /** The block id the history note can link to (without the `^`), or null when the block cannot take one. */
+  id: string | null;
+  /** The edit that writes the anchor, or null when there is nothing to write (an existing one is reused). */
+  edit: Edit | null;
+}
+
+const HEADING_LINE = /^[ \t]{0,3}#{1,6}[ \t]/;
+const QUOTE_LINE = /^[ \t]*>/;
+const TABLE_LINE = /^[ \t]*\|/;
+const BLANK_LINE = /^[ \t]*\r?$/;
+const ANCHOR_AT_END = /[ \t]\^([A-Za-z0-9-]+)[ \t]*\r?$/;
+const ANCHOR_LINE = /^\^([A-Za-z0-9-]+)[ \t]*\r?$/;
+
+/**
+ * An invisible anchor for the block that holds the marker, so that the history note can link
+ * back to the answer: a block id (`^lac-122`). In a paragraph or a list item it goes at the
+ * end of the last line; a table or a quote takes it on a line of its own after a blank line.
+ * A block that already has an id keeps it. A heading cannot take one.
+ */
+export function planAnchor(text: string, span: Span, id: string): Anchor {
+  const lines: { end: number; start: number; text: string }[] = [];
+  let pos = 0;
+  for (const t of text.split("\n")) {
+    lines.push({ start: pos, end: pos + t.length, text: t });
+    pos += t.length + 1;
+  }
+  const lineAt = (offset: number): number => Math.max(0, lines.findIndex((l) => offset >= l.start && offset <= l.end));
+  const first = lineAt(span.start);
+  const last = lineAt(span.end - 1);
+  if (HEADING_LINE.test(lines[first].text)) return { id: null, edit: null };
+
+  // The last line of the block, and whether the anchor needs a line of its own.
+  let end = last;
+  let ownLine = true;
+  const extend = (belongs: (line: string) => boolean): void => {
+    while (end + 1 < lines.length && belongs(lines[end + 1].text)) end++;
+  };
+  if (QUOTE_LINE.test(lines[last].text)) extend((l) => QUOTE_LINE.test(l));
+  else if (TABLE_LINE.test(lines[last].text)) extend((l) => TABLE_LINE.test(l));
+  else {
+    ownLine = false;
+    extend((l) => lineKind(l) === "text" && !QUOTE_LINE.test(l));
+  }
+
+  const lastLine = lines[end];
+  if (!ownLine) {
+    const m = ANCHOR_AT_END.exec(lastLine.text);
+    if (m) return { id: m[1], edit: null };
+  } else if (end + 2 < lines.length && BLANK_LINE.test(lines[end + 1].text)) {
+    const m = ANCHOR_LINE.exec(lines[end + 2].text);
+    if (m) return { id: m[1], edit: null };
+  }
+
+  const at = lastLine.end - (lastLine.text.endsWith("\r") ? 1 : 0);
+  if (!ownLine) return { id, edit: { from: at, to: at, insert: ` ^${id}` } };
+  // Blank line before the anchor, and one after it when text follows.
+  const next = lines[end + 1];
+  const tail = next !== undefined && !BLANK_LINE.test(next.text) ? "\n" : "";
+  return { id, edit: { from: at, to: at, insert: `\n\n^${id}${tail}` } };
+}
+
 export interface AcceptInput {
   kind: Kind;
   /** The chosen or edited answer. */
@@ -128,20 +205,29 @@ export interface AcceptInput {
   /** Required for `sic`. */
   verdict?: "confirmed" | "corrected";
   style: CitationStyle;
-  /** The link to the history note, built with `generateMarkdownLink` and `CITATION_LABEL`. */
+  /** The link to the history note, built with `generateMarkdownLink`: labelled `footnoteLabel` or `CITATION_LABEL`, by style. */
   link: string;
-  /** Footnote style only: see `newFootnoteId`. */
-  footnoteId?: string;
+  /** The id of the footnote and of the anchor: see `anchorIdFor`. */
+  id: string;
+  /** What the footnote says the lacuna was about. */
+  question: string;
+}
+
+export interface AcceptPlan {
+  /** Apply together. Never two at the same offset, so the order does not matter. */
+  edits: Edit[];
+  /** The block id of the answer in the text, or null when it has none (a heading). */
+  anchor: string | null;
 }
 
 /**
  * Everything an accepted answer changes in the article, as edits to apply together:
- * the marker becomes the answer and its citation, and a footnote definition is added
- * at the end of the note when the style asks for one. Applying them in one go makes
- * one undo step in the editor.
+ * the marker becomes the answer and its citation, a footnote definition is added at the end
+ * of the note when the style asks for one, and the block gets an anchor. Applying them in
+ * one go makes one undo step in the editor.
  */
-export function planAccept(text: string, span: Span, input: AcceptInput): Edit[] {
-  const cite = buildCitation(input.style, input.link, input.footnoteId);
+export function planAccept(text: string, span: Span, input: AcceptInput): AcceptPlan {
+  const cite = buildCitation(input.style, input.link, input.id, input.question);
   const replacement = buildReplacement({
     kind: input.kind,
     answer: input.answer,
@@ -150,6 +236,13 @@ export function planAccept(text: string, span: Span, input: AcceptInput): Edit[]
     verdict: input.verdict,
   });
   const edits = [markerEdit(text, span, replacement)];
-  if (cite.definition) edits.push(footnoteEdit(text, cite.definition));
-  return edits;
+  const footnote = cite.definition ? footnoteEdit(text, cite.definition) : null;
+  const anchor = planAnchor(text, span, input.id);
+  if (anchor.edit) {
+    // The block can end where the note ends. One edit there, not two at the same offset.
+    if (footnote && footnote.from === anchor.edit.from) footnote.insert = anchor.edit.insert + footnote.insert;
+    else edits.push(anchor.edit);
+  }
+  if (footnote) edits.push(footnote);
+  return { edits, anchor: anchor.id };
 }
