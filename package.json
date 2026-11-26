@@ -4,6 +4,7 @@
   "description": "Obsidian plugin: mark missing facts with ==?…== and resolve them later with Claude.",
   "main": "main.js",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc --noEmit --skipLibCheck && node esbuild.config.mjs production",
@@ -12,8 +13,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "esbuild": "^0.28.0",
-    "obsidian": "latest",
-    "tslib": "^2.8.0",
+    "obsidian": "1.14.4",
     "typescript": "^5.6.0",
     "vitest": "^5.1.1"
   }

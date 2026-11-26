@@ -1,6 +1,6 @@
 # Lacuna — Obsidian plugin design & v1 plan
 
-> Repo: `C:\repos\obsidian-findlater`. It contains only `docs/ask-later-plan.md`, an earlier draft of this design under the name "Ask Later".
+> When this was written the repository contained only `docs/ask-later-plan.md`, an earlier draft of this design under the name "Ask Later".
 > Design agreed through 5 Q&A rounds on 2026-11-18. Name, keywords and language packs were redesigned on 2026-11-20.
 > **First implementation step:** write this plan to `docs/lacuna-plan.md` and delete `docs/ask-later-plan.md`, since this plan replaces it entirely. Then write the handover docs (§8).
 

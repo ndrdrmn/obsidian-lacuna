@@ -13,6 +13,20 @@ A *lacuna* is a gap in a manuscript that an editor later fills. Every answer is 
 - **Every answer is sourced**: the candidates come with the pages they were found on, and the history note keeps them.
 - **Nothing else leaves your computer**: only the question, the note's title and the paragraph around the marker go to Claude's web search. See [Privacy](#privacy).
 
+## Before you test
+
+Lacuna is an **early beta** (0.1.0), released for testing. Please read this first.
+
+- **Back up, or use a copy.** Try it on a copy of your vault, or make sure you have a backup or Obsidian's File recovery / Sync history switched on.
+- **What it changes.** It edits a note only when you press **Accept** or **Answer myself**, and it can undo that in one step in the editor. It creates the `Apparatus/` folder and the history notes in it. It deletes nothing except through **Discard…** (orphaned history notes), which asks first and moves the note to the trash.
+- **What leaves your computer.** Only a search: the question, the note's title and the context you chose, sent to Claude through your own `claude` command and login. The plugin makes no network requests of its own and has no telemetry, analytics or update check. A search uses some of your Claude plan's allowance. See [Privacy](#privacy).
+- **Answers can be wrong.** They are proposals from a language model with web search. Read the sources before you accept; that is why they are kept.
+- **Desktop only**, and tested only on Windows 11 so far. Reports from macOS and Linux are especially welcome.
+- **No warranty.** It is MIT-licensed, free software, provided as is (see [License](#license)).
+- **Made with AI help.** The plugin was written with Claude Code. The code is small and readable, and the tests are in `tests/`; reviews are welcome.
+- **Check the download.** The release files are built by GitHub Actions from the tagged source. To check that `main.js` is the build of this repository: `gh attestation verify main.js -R ndrdrmn/obsidian-lacuna`.
+- **Found a bug?** Open an [issue](https://github.com/ndrdrmn/obsidian-lacuna/issues) with your Obsidian version, your system, the steps, and the history note if there is one. Please do not paste private text.
+
 ## Requirements
 
 - Obsidian **desktop** 1.6.6 or later (the plugin starts the `claude` program, so it is desktop only).
@@ -21,9 +35,11 @@ A *lacuna* is a gap in a manuscript that an editor later fills. Every answer is 
 
 ## Install
 
-Copy `main.js`, `manifest.json` and `styles.css` into `<your vault>/.obsidian/plugins/lacuna/`, then enable **Lacuna** under Settings → Community plugins.
+**With BRAT** (the easiest way to get beta updates): install the [BRAT](https://github.com/TfTHacker/obsidian42-brat) plugin, run **BRAT: Add a beta plugin for testing**, enter `ndrdrmn/obsidian-lacuna`, then enable **Lacuna** under Settings → Community plugins.
 
-To build them yourself: `npm install`, then `npm run build`; the three files are in the repository's root.
+**By hand:** download `main.js`, `manifest.json` and `styles.css` from the [latest release](https://github.com/ndrdrmn/obsidian-lacuna/releases/latest), copy them into `<your vault>/.obsidian/plugins/lacuna/`, then enable **Lacuna** under Settings → Community plugins.
+
+**From source:** `npm install`, then `npm run build`; the three files are in the repository's root.
 
 ## Using it
 
@@ -130,3 +146,13 @@ npm run build   # type check, then the release build in the repository's root
 ```
 
 Open `test-vault/` as a vault in Obsidian and enable the plugin; `test-vault/Windows 95.md` is an example note with one marker of each kind. Ctrl+R reloads the plugin after a build. The design and its decisions are in [docs/](docs/00-overview.md): the [plan](docs/lacuna-plan.md), the [syntax and language packs](docs/01-syntax-and-keywords.md), the [architecture](docs/02-architecture.md), the [Claude CLI](docs/03-claude-cli.md) and the [backlog](docs/04-backlog.md).
+
+### Making a release
+
+1. Raise `version` in `manifest.json` and `package.json`, and add the line `"<version>": "<minAppVersion>"` to `versions.json`.
+2. Commit, then tag with the bare version (no `v`, as Obsidian expects): `git tag 0.1.1`, `git push origin main --tags`.
+3. The **Release** workflow builds from the tag, checks that it matches `manifest.json`, attests `main.js` and creates a **draft** release with the three files. Read it, then publish it.
+
+## License
+
+[MIT](LICENSE).
